@@ -17,3 +17,4 @@ runs/
 
 # Temp download parts
 *.part
+models/easyocr/

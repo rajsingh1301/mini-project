@@ -10,6 +10,7 @@ import config
 from modules.camera import VideoStream
 from modules.detector import ObstacleDetector
 from modules.instruction import InstructionGenerator
+from modules.ocr_reader import TextReader
 from modules.tts_engine import TTSEngine
 
 
@@ -64,7 +65,7 @@ def draw_hud(frame, detections, active_instruction, fps, latency_ms):
     cv2.putText(frame, status_text, (15, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.75, banner_color, 2)
 
     # Metrics (FPS & Latency)
-    metrics_text = f"FPS: {fps} | Latency: {int(latency_ms)}ms"
+    metrics_text = f"FPS: {fps} | Processing: {int(latency_ms)}ms"
     cv2.putText(frame, metrics_text, (w - 220, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1)
 
     return frame
@@ -82,7 +83,7 @@ def create_simulated_frame(frame_counter):
     cy = int(config.FRAME_HEIGHT * 0.6)
     radius = int(40 + 20 * np.sin(frame_counter * 0.03))
     cv2.circle(frame, (cx, cy), radius, (200, 200, 200), -1)
-    cv2.putText(frame, "SIMULATED FEED (No camera found)", (50, 200), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 180, 255), 2)
+    cv2.putText(frame, "NO CAMERA FOUND - CONNECT CAMERA FOR LIVE DETECTION", (25, 200), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (0, 180, 255), 2)
     return frame
 
 
@@ -102,9 +103,10 @@ def main():
     print("Loading YOLOv8 model...")
     detector = ObstacleDetector()
     instruction_engine = InstructionGenerator()
+    text_reader = TextReader()
     tts = TTSEngine()
 
-    print("System active! Press 'q' in the video window or Ctrl+C in terminal to exit.")
+    print("System active! Press 'r' to read a sign, 'q' to exit.")
     tts.speak("Guidance system active")
 
     frame_counter = 0
@@ -128,8 +130,9 @@ def main():
 
             # Step 2: Obstacle Detection
             t_det_start = time.time()
-            detections = detector.detect(frame)
-            det_time = (time.time() - t_det_start) * 1000
+            # The fallback image is only a visible status screen; do not imply
+            # that the model can detect its synthetic circle as a real object.
+            detections = detector.detect(frame) if cam_available else []
 
             # Step 3: Instruction & Prioritization Decision
             spoken_instruction = instruction_engine.generate_instruction(detections)
@@ -138,7 +141,7 @@ def main():
                 is_emergency = "stop" in spoken_instruction.lower()
                 tts.speak(spoken_instruction, priority=is_emergency)
             elif not detections:
-                current_active_directive = "Path clear"
+                current_active_directive = "Path clear" if cam_available else "Camera unavailable"
 
             # Step 4: Calculate Metrics
             total_latency = (time.time() - t_start) * 1000
@@ -158,6 +161,21 @@ def main():
             key = cv2.waitKey(1) & 0xFF
             if key == ord('q'):
                 break
+            if key == ord('r'):
+                print("[OCR] Reading current frame...")
+                try:
+                    text = text_reader.read(frame)
+                    if text:
+                        current_active_directive = f"Text: {text}"
+                        print(f"[OCR] {text}")
+                        tts.speak(f"Text says: {text}", priority=True)
+                    else:
+                        current_active_directive = "No readable text"
+                        print("[OCR] No readable text found.")
+                        tts.speak("No readable text found")
+                except RuntimeError as error:
+                    current_active_directive = "OCR unavailable"
+                    print(f"[OCR] {error}")
 
     except KeyboardInterrupt:
         print("\nStopping guidance system...")

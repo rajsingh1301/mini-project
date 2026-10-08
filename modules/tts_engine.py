@@ -81,9 +81,15 @@ class TTSEngine:
             # Drop older message and insert new one
             try:
                 self.msg_queue.get_nowait()
+                self.msg_queue.task_done()
             except queue.Empty:
                 pass
-            self.msg_queue.put_nowait(text)
+            try:
+                self.msg_queue.put_nowait(text)
+            except queue.Full:
+                # A concurrent producer may have filled the tiny queue.
+                # Do not block the vision loop for stale audio.
+                pass
 
     def stop(self):
         self.running = False

@@ -4,8 +4,8 @@ An edge-AI assistive prototype that converts live video stream into concise, pri
 
 ---
 
-## 🚀 Key Features (50% Prototype Implemented)
-1. **Real-Time Obstacle Detection:** Uses YOLOv8 Nano for fast, offline object identification (people, vehicles, chairs, tables, doors, stairs).
+## 🚀 Key Features
+1. **Real-Time Obstacle Detection:** Uses YOLOv8 Nano for fast, local identification of COCO classes such as people, vehicles, chairs, tables, bottles, backpacks, and suitcases.
 2. **Horizontal Sector Zoning:** Divides camera field-of-view into `Left`, `Path (Ahead)`, and `Right` to give precise spatial context.
 3. **Hazard Risk Index (HRI):** Mathematically ranks obstacles using:
    - Proximity via bounding box area scale ($\text{area}_{box} / \text{area}_{frame}$)
@@ -44,7 +44,7 @@ mini_project/
 
 ---
 
-## 🛠️ How to Run
+## 🛠️ Presentation quick start
 
 ### 1. Activate Environment
 ```bash
@@ -56,6 +56,31 @@ source .venv/bin/activate
 python main.py
 ```
 *(Press **'q'** in the video window to stop)*
+
+Before presenting, allow camera access when macOS asks. Keep a chair or a
+person in the centre of the camera view for a repeatable demo. A small object
+near either edge demonstrates the left/right cue; a large centre object should
+produce the red **Stop** cue.
+
+## Current scope and next upgrade
+
+The included `yolov8n.pt` model was trained on COCO. COCO has no `door` or
+`stairs` class, so this version must be presented as a **general obstacle
+guidance prototype**, not as validated stair or door detection. The action
+pipeline, direction logic, priority ranking, HUD, and offline speech are fully
+implemented. The next milestone is to plug in a custom model trained with
+door/stair labels, then add OCR on sampled frames.
+
+## Reading a sign or label
+
+Point the camera at clear, well-lit English text and press **`r`** in the video
+window. The system pauses only for that OCR request, shows `Text: ...` in the
+HUD, and reads the result aloud. This on-demand design avoids slowing the live
+obstacle loop. The first OCR request may take longer while EasyOCR loads its
+recognition model.
+
+EasyOCR stores its downloaded model files locally in `models/easyocr/` inside
+this project, so the text-reading demo also works after the initial download.
 
 ### 3. Run Benchmark (To get numbers for your Research Paper)
 ```bash

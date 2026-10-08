@@ -17,7 +17,9 @@ MODEL_NAME = "yolov8n.pt"    # YOLOv8 nano: lightweight & fast
 CONF_THRESHOLD = 0.45        # Minimum confidence threshold
 IOU_THRESHOLD = 0.45
 
-# Important obstacle & hazard classes (COCO dataset mappings)
+# Important obstacle & hazard classes available in the default COCO YOLOv8n
+# model. ``door`` and ``stairs`` are intentionally not listed: the bundled
+# COCO weights do not have those labels. They can be added with custom weights.
 # Priority weights (higher means higher hazard risk)
 PRIORITY_CLASSES = {
     "person": 0.8,
@@ -31,8 +33,6 @@ PRIORITY_CLASSES = {
     "couch": 0.6,
     "dining table": 0.6,
     "bed": 0.5,
-    "door": 0.7,
-    "stairs": 1.0,
     "bottle": 0.3,
     "backpack": 0.4,
     "suitcase": 0.5,
@@ -53,3 +53,12 @@ TTS_RATE = 190               # Words per minute (180-200 is clear and fast)
 TTS_VOLUME = 1.0             # 0.0 to 1.0
 AUDIO_THROTTLE_SECONDS = 2.0 # Minimum seconds between repeating same class in same sector
 CRITICAL_OVERRIDE_SECONDS = 0.8 # Shorter interval for emergency "STOP" warnings
+
+# OCR Settings
+# OCR runs only when the user requests it with the `r` key. Continuous OCR is
+# intentionally avoided because it adds noticeable delay to a walking demo.
+OCR_LANGUAGES = ["en"]
+OCR_MIN_CONFIDENCE = 0.45
+OCR_MAX_CHARACTERS = 120
+OCR_MODEL_DIR = BASE_DIR / "models" / "easyocr"
+OCR_USER_NETWORK_DIR = OCR_MODEL_DIR / "user_network"

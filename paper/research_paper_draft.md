@@ -7,7 +7,7 @@
 ---
 
 ## Abstract
-Traditional assistive vision solutions for visually impaired individuals primarily focus on passive scene description ("there is a chair ahead") or require deliberate snapshot queries. Such approaches suffer from high cognitive load, lack of timely navigation cues, and vulnerability to network latencies when cloud vision APIs are utilized. This paper proposes a lightweight, real-time edge-computing assistive framework that transforms live monocular video streams into concise, prioritized, and imperative spoken actions (e.g., *"Stop"*, *"Chair on left"*, *"Step down"*). The system employs an optimized YOLOv8 nano model for immediate obstacle and architectural hazard identification, coupled with a spatial-temporal heuristic engine that computes an actionable **Hazard Risk Index (HRI)** based on bounding box kinematics and horizontal sector zoning. An asynchronous, non-blocking Text-to-Speech (TTS) pipeline ensures zero frame dropping while maintaining an end-to-end guidance latency of under 150 ms on commodity laptop hardware. We detail the system architecture, mathematical formulation of the priority decision engine, and preliminary empirical benchmarks.
+Traditional assistive vision solutions for visually impaired individuals primarily focus on passive scene description ("there is a chair ahead") or require deliberate snapshot queries. Such approaches suffer from high cognitive load, lack of timely navigation cues, and vulnerability to network latencies when cloud vision APIs are utilized. This paper proposes a lightweight, real-time edge-computing assistive framework that transforms live monocular video streams into concise, prioritized, and imperative spoken actions (e.g., *"Stop! person ahead"*, *"Chair on left"*). The system employs an optimized YOLOv8 nano model for immediate obstacle identification, coupled with a spatial-temporal heuristic engine that computes an actionable **Hazard Risk Index (HRI)** based on bounding box scale, horizontal alignment and class severity. An asynchronous, non-blocking Text-to-Speech (TTS) pipeline ensures audio never blocks the vision loop; on an Apple M4 laptop CPU the detection-plus-decision stage measured about 21 ms per frame (about 47 FPS) in our benchmark. We detail the system architecture, the formulation of the priority decision engine, and preliminary benchmarks. Stair and door detection are not implemented and are left as future work.
 
 **Keywords:** Assistive Technology, Visual Impairment, Real-Time Object Detection, Edge AI, Actionable Guidance, Human-Computer Interaction (HCI).
 
@@ -25,9 +25,9 @@ Worldwide, an estimated 285 million individuals live with visual impairments, of
 ### 1.2 Our Contribution
 To overcome these gaps, we propose a high-throughput, edge-executable framework characterized by:
 - **Imperative Action Synthesis:** Transforming continuous bounding box detections into immediate navigational commands (e.g., direction + action verbs).
-- **Hazard Risk Index (HRI):** A prioritized mathematical heuristic ranking hazards by proximity (normalized bounding box scale $\sqrt{w \cdot h}$), proximity delta ($d(\text{area})/dt$), and horizontal collision cone (bearing $\theta$).
+- **Hazard Risk Index (HRI):** A prioritized mathematical heuristic ranking hazards by proximity (normalized bounding box scale $\sqrt{w \cdot h}$), and horizontal alignment with the walking path.
 - **Zero-Block Asynchronous Execution:** Decoupling frame inference from speech generation using thread-safe state dispatchers.
-- **Affordable Commodity Deployment:** Capable of running real-time ($>25\text{ FPS}$) on modest CPU/edge hardware without cloud dependencies.
+- **Affordable Commodity Deployment:** Runs in real time on a laptop CPU (about 47 FPS for the detection and decision stages on an Apple M4) without cloud dependencies.
 
 ---
 
@@ -41,7 +41,7 @@ A comparative review of prominent assistive paradigms highlights distinct trade-
 | **Envision Glasses** | Edge Google Glass / Cloud | Descriptive & OCR read | 800 – 2500 ms | $2,500 – $3,500 | Cost prohibitive, verbose speech |
 | **DeepNAVI (2022)** | Edge Deep CNN | 20-class navigation object set | 80 – 120 ms | Prototype | Static classes, lacks unified text/TTS priority |
 | **DrishT (2026)** | Low-cost Embedded Edge | Proximity sonification | 100 – 180 ms | < $200 | Limited semantic cues |
-| **Proposed System** | **Local Edge (YOLOv8n + HRI Engine)** | **Concise Actionable Imperatives** | **< 120 ms** | **Commodity / Free** | **Real-time, zero cloud reliance, prioritized speech** |
+| **Proposed System** | **Local Edge (YOLOv8n + HRI Engine)** | **Concise Actionable Imperatives** | **~21 ms** (detection + decision, M4 CPU; excludes camera and audio) | **Commodity / Free** | **Real-time, zero cloud reliance, prioritized speech** |
 
 ---
 
@@ -91,26 +91,29 @@ $$\text{HRI}_i = \alpha \cdot \text{Proximity}_i + \beta \cdot \text{Alignment}_
    $$A_i = 1 - 2 \cdot \left| \frac{x_{center, i}}{W} - 0.5 \right|$$
    (Takes value $1.0$ for dead center, approaching $0.0$ at borders).
 3. **Class Severity Weights ($\omega_c$):**
-   Critical drop-offs/hazards (stairs, vehicles, persons directly ahead) carry $\omega_c = 1.0$; static side objects carry lower weights ($\omega_c = 0.4$).
+   Vehicles carry $\omega_c = 1.0$, persons $0.8$, furniture $0.5$-$0.6$, small objects $0.3$-$0.4$ (see `config.py`). Stairs and doors are not in the COCO label set and are not detected.
 
-When $P_i > 0.45$ and $A_i > 0.7$, an urgent override flag triggers immediate speech interruption:
+When $P_i \ge 0.20$ (the "immediate" proximity level), the instruction becomes urgent: "Stop!" if the object is ahead, otherwise "Caution", and it interrupts queued speech:
 $$\text{Action} = \text{"STOP, " } + \text{Class Name} + \text{" IMMEDIATE AHEAD"}$$
 
 ### 3.5 Speech Synthesis & Chatter Suppression (Throttling)
 A common failure mode in assistive audio is "chatter overload," where repeated detections overwhelm the user. We implement:
-- **Speech Throttling Window ($\Delta t_{repeat} = 2.0\text{ s}$):** Identical hazards in the same sector are muted unless their risk level spikes by $> 25\%$.
+- **Speech Throttling Window ($\Delta t_{repeat} = 2.0\text{ s}$):** Identical hazards in the same sector are muted for 2.0 s (0.8 s for "immediate" hazards).
 - **Non-blocking Worker Thread:** Decouples TTS audio rendering from the computer vision rendering loop to prevent frame stalling.
 
 ---
 
 ## 4. Prototype Implementation (Phase 1: 50% Milestone)
 The initial prototype focuses on the core functional loop:
+**Benchmark** (`tests/test_benchmark.py`, 25 iterations, random-noise frames, Apple M4 CPU): YOLOv8n inference 21.4 ms (SD 1.3 ms), decision engine under 0.01 ms, 46.6 FPS. This excludes camera capture and speech start, and noise frames contain no real objects, so it is a lower bound.
 1. Low-latency webcam capture loop with continuous FPS benchmark display.
 2. Lightweight YOLOv8 nano edge inference.
 3. Sector decomposition and HRI-based direction calculation (`Left`, `Center Ahead`, `Right`).
 4. Threaded audio output queue executing action-oriented commands.
 
-*(Future Phase 2 introduces: OCR reading integration on background triggers, stair-specific fine-tuning, and user trials with blindfold navigation).*
+5. On-demand OCR (key `r`, EasyOCR) reads signs and labels.
+
+*(Future work: stair and door detection with custom-trained weights, continuous OCR, and user trials with blindfold navigation. None of the user-study metrics below have been measured yet.)*
 
 ---
 
