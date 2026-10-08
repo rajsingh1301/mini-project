@@ -52,7 +52,7 @@ FAR_PROXIMITY_THRESHOLD = 0.03         # Safe distance (> 2.5 meters)
 TTS_RATE = 190               # Words per minute (180-200 is clear and fast)
 TTS_VOLUME = 1.0             # 0.0 to 1.0
 AUDIO_THROTTLE_SECONDS = 4.0 # Minimum seconds between repeating same class in same sector
-CRITICAL_OVERRIDE_SECONDS = 2.5 # Shorter interval for emergency "STOP" warnings
+CRITICAL_OVERRIDE_SECONDS = 4.0 # Shorter interval for emergency "STOP" warnings
 MIN_GAP_SECONDS = 2.0        # Minimum seconds between any two non-emergency announcements
 
 # OCR Settings

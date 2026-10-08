@@ -101,6 +101,7 @@ capture.width = 640; capture.height = 480;
 const cctx = capture.getContext("2d");
 
 let ws = null, stream = null, running = false, muted = false;
+let lastUrgent = { text: "", at: 0 };
 let lastDets = [], frames = 0, fpsTimer = 0, lastBanner = "";
 
 const COLORS = { immediate: "#ff4d4f", near: "#ffb020", far: "#3ddc84" };
@@ -116,8 +117,13 @@ function setBanner(text, kind) {
 function speak(text, urgent) {
   if (muted || !("speechSynthesis" in window)) return;
   const synth = window.speechSynthesis;
-  if (urgent) synth.cancel();
-  else if (synth.speaking) return; // drop stale chatter, never build a backlog
+  const now = performance.now();
+  if (urgent) {
+    // Do not repeat the same urgent phrase or cut it off while it is still being spoken
+    if (text === lastUrgent.text && (synth.speaking || now - lastUrgent.at < 4000)) return;
+    lastUrgent = { text, at: now };
+    synth.cancel();
+  } else if (synth.speaking) return; // drop stale chatter, never build a backlog
   const u = new SpeechSynthesisUtterance(text);
   u.rate = 1.1;
   synth.speak(u);
