@@ -98,7 +98,7 @@ $$\text{Action} = \text{"STOP, " } + \text{Class Name} + \text{" IMMEDIATE AHEAD
 
 ### 3.5 Speech Synthesis & Chatter Suppression (Throttling)
 A common failure mode in assistive audio is "chatter overload," where repeated detections overwhelm the user. We implement:
-- **Speech Throttling Window ($\Delta t_{repeat} = 2.0\text{ s}$):** Identical hazards in the same sector are muted for 2.0 s (0.8 s for "immediate" hazards).
+- **Speech Throttling Window ($\Delta t_{repeat} = 4.0\text{ s}$):** Identical hazards in the same sector are muted for 4.0 s (2.5 s for "immediate" hazards), and any two non-urgent announcements are at least 2.0 s apart.
 - **Non-blocking Worker Thread:** Decouples TTS audio rendering from the computer vision rendering loop to prevent frame stalling.
 
 ---

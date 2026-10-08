@@ -10,6 +10,7 @@ class InstructionGenerator:
     def __init__(self):
         # Cache to throttle speech: key -> last_announced_timestamp
         self.last_announced = {}
+        self.last_any_announced = 0.0
         # Keep track of last high-priority directive for HUD display
         self.last_active_directive = "Path clear"
 
@@ -91,6 +92,10 @@ class InstructionGenerator:
             # Determine throttling window: critical "immediate" alerts have a shorter cooldown
             cooldown = config.CRITICAL_OVERRIDE_SECONDS if proximity == "immediate" else config.AUDIO_THROTTLE_SECONDS
 
+            # Global gap: avoid back-to-back phrases about different objects
+            if proximity != "immediate" and (now - self.last_any_announced) < config.MIN_GAP_SECONDS:
+                continue
+
             last_time = self.last_announced.get(cache_key, 0)
             if (now - last_time) >= cooldown:
                 # Build concise imperative instruction
@@ -113,6 +118,7 @@ class InstructionGenerator:
 
                 # Update timestamp and active state
                 self.last_announced[cache_key] = now
+                self.last_any_announced = now
                 self.last_active_directive = phrase
                 return phrase
 
