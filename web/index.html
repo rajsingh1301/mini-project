@@ -2,268 +2,458 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0d10">
 <title>Actionable Guidance</title>
 <style>
   :root {
-    --bg: #101214; --panel: #1a1d21; --text: #f2f4f7; --muted: #9aa4b2;
+    --bg: #0b0d10; --panel: #151920; --panel2: #1c212a; --border: #272d38;
+    --text: #f3f5f8; --muted: #8b95a5;
     --accent: #ffd54a; --danger: #ff4d4f; --ok: #3ddc84; --warn: #ffb020;
-    --border: #2a2f36;
+    --radius: 14px;
   }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text);
-         font: 16px/1.4 system-ui, -apple-system, Segoe UI, sans-serif; }
-  header { padding: 14px 16px; border-bottom: 1px solid var(--border); }
-  header h1 { margin: 0; font-size: 18px; }
-  header p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
-  main { display: grid; gap: 16px; padding: 16px; max-width: 1100px; margin: 0 auto;
-         grid-template-columns: 1fr; }
-  @media (min-width: 900px) { main { grid-template-columns: 2fr 1fr; } }
-  .stage { position: relative; background: #000; border-radius: 10px; overflow: hidden;
-           aspect-ratio: 4 / 3; border: 1px solid var(--border); }
-  video, canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
-  .placeholder { position: absolute; inset: 0; display: grid; place-items: center;
-                 color: var(--muted); text-align: center; padding: 20px; }
-  #banner { margin-top: 12px; padding: 18px 16px; border-radius: 10px; background: var(--panel);
-            border: 2px solid var(--border); font-size: clamp(22px, 5vw, 34px); font-weight: 700;
-            min-height: 72px; display: flex; align-items: center; }
-  #banner.stop { border-color: var(--danger); color: var(--danger); }
-  #banner.info { border-color: var(--accent); color: var(--accent); }
-  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
-  .panel h2 { margin: 0 0 10px; font-size: 14px; color: var(--muted); font-weight: 600;
-              text-transform: uppercase; letter-spacing: .04em; }
-  .controls { display: flex; flex-wrap: wrap; gap: 8px; }
-  button { font: inherit; font-weight: 600; padding: 12px 16px; border-radius: 8px; cursor: pointer;
-           border: 1px solid var(--border); background: #262b31; color: var(--text); min-height: 44px; }
-  button.primary { background: var(--accent); color: #111; border-color: var(--accent); }
-  button:disabled { opacity: .45; cursor: not-allowed; }
-  button:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  button { font: inherit; color: inherit; }
+  :focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+  [hidden] { display: none !important; }
+
+  .app { max-width: 1180px; margin: 0 auto; padding: 14px 16px 96px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 0 14px; }
+  .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .logo { width: 36px; height: 36px; border-radius: 10px; background: var(--accent); color: #111;
+          display: grid; place-items: center; font-weight: 800; flex: none; }
+  .brand h1 { margin: 0; font-size: 17px; line-height: 1.2; }
+  .brand p { margin: 0; font-size: 12px; color: var(--muted); }
+  .conn { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted);
+          background: var(--panel); border: 1px solid var(--border); padding: 7px 12px; border-radius: 999px; white-space: nowrap; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+  .conn.live .dot { background: var(--ok); box-shadow: 0 0 0 4px rgba(61,220,132,.18); }
+  .conn.err .dot { background: var(--danger); }
+
+  .layout { display: grid; gap: 16px; grid-template-columns: 1fr; }
+  @media (min-width: 960px) { .layout { grid-template-columns: minmax(0, 1.7fr) minmax(300px, 1fr); align-items: start; } }
+
+  /* Stage */
+  .stage { position: relative; aspect-ratio: 4 / 3; background: #000; border-radius: var(--radius);
+           overflow: hidden; border: 2px solid var(--border); transition: border-color .15s, box-shadow .15s; }
+  .stage.alert { border-color: var(--danger); box-shadow: 0 0 0 4px rgba(255,77,79,.25), 0 0 40px rgba(255,77,79,.35); }
+  video, canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; }
+  .placeholder { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 24px;
+                 background: radial-gradient(circle at 50% 40%, #1b212b, #0b0d10 70%); }
+  .placeholder .icon { font-size: 44px; margin-bottom: 8px; }
+  .placeholder h2 { margin: 0 0 6px; font-size: 20px; }
+  .placeholder p { margin: 0 auto 18px; color: var(--muted); max-width: 340px; font-size: 14px; }
+  .chips { position: absolute; top: 10px; left: 10px; right: 10px; display: flex; justify-content: space-between;
+           gap: 8px; pointer-events: none; }
+  .chip { background: rgba(10,12,16,.72); backdrop-filter: blur(6px); border: 1px solid rgba(255,255,255,.12);
+          padding: 5px 10px; border-radius: 999px; font-size: 12px; font-variant-numeric: tabular-nums; }
+  .chip b { font-weight: 700; }
+  .zones { position: absolute; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: 35fr 30fr 35fr;
+           pointer-events: none; }
+  .zone { padding: 6px 4px 8px; text-align: center; font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+          color: rgba(255,255,255,.55); background: linear-gradient(transparent, rgba(0,0,0,.6)); }
+  .zone.mid { color: var(--accent); }
+
+  /* Banner */
+  .banner { margin-top: 14px; display: flex; align-items: center; gap: 16px; padding: 16px 18px; min-height: 92px;
+            background: var(--panel); border: 2px solid var(--border); border-radius: var(--radius);
+            transition: background .15s, border-color .15s, color .15s; }
+  .banner .arrow { width: 56px; height: 56px; flex: none; border-radius: 14px; display: grid; place-items: center;
+                   font-size: 30px; font-weight: 800; background: var(--panel2); }
+  .banner .text { font-size: clamp(22px, 4.6vw, 34px); font-weight: 800; line-height: 1.15; overflow-wrap: anywhere; }
+  .banner .sub { font-size: 12px; color: var(--muted); font-weight: 500; margin-top: 2px; }
+  .banner.clear { border-color: rgba(61,220,132,.5); } .banner.clear .arrow { color: var(--ok); }
+  .banner.info { border-color: rgba(255,213,74,.6); } .banner.info .arrow { color: var(--accent); }
+  .banner.stop { border-color: var(--danger); background: rgba(255,77,79,.14); color: #ffd9d9; animation: pulse 1s ease-in-out infinite; }
+  .banner.stop .arrow { background: var(--danger); color: #fff; }
+  @keyframes pulse { 50% { background: rgba(255,77,79,.26); } }
+  @media (prefers-reduced-motion: reduce) { .banner.stop { animation: none; } }
+
+  /* Sector strip */
+  .sectors { margin-top: 12px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .sector { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; min-height: 66px;
+            border-left: 5px solid var(--border); min-width: 0; }
+  .sector small { display: block; color: var(--muted); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+  .sector b { display: block; font-size: 15px; margin-top: 2px; text-transform: capitalize; overflow-wrap: anywhere; }
+  .sector.immediate { border-left-color: var(--danger); } .sector.near { border-left-color: var(--warn); }
+  .sector.far { border-left-color: var(--ok); }
+
+  /* Side column */
+  .side { display: grid; gap: 14px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }
+  .card h3 { margin: 0 0 12px; font-size: 12px; color: var(--muted); font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
   .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; text-align: center; }
-  .stat b { display: block; font-size: 24px; }
-  .stat span { color: var(--muted); font-size: 12px; }
-  #log { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow: auto; font-size: 14px; }
-  #log li { padding: 6px 0; border-bottom: 1px solid var(--border); }
-  #log li small { color: var(--muted); margin-right: 6px; }
-  #log li.stop { color: var(--danger); }
-  .status { font-size: 13px; color: var(--muted); margin-top: 8px; }
-  .side { display: grid; gap: 16px; align-content: start; }
+  .stat { background: var(--panel2); border-radius: 10px; padding: 10px 4px; }
+  .stat b { display: block; font-size: 24px; font-variant-numeric: tabular-nums; }
+  .stat span { color: var(--muted); font-size: 11px; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; }
+  .row + .row { border-top: 1px solid var(--border); }
+  .row label { font-size: 14px; }
+  .row small { display: block; color: var(--muted); font-size: 12px; }
+  input[type=range] { width: 130px; accent-color: var(--accent); }
+  .switch { position: relative; width: 46px; height: 28px; flex: none; }
+  .switch input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+  .switch span { position: absolute; inset: 0; background: #333a46; border-radius: 999px; transition: background .15s; pointer-events: none; }
+  .switch span::after { content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%;
+                        background: #fff; transition: transform .15s; }
+  .switch input:checked + span { background: var(--accent); }
+  .switch input:checked + span::after { transform: translateX(18px); }
+  .switch input:focus-visible + span { outline: 3px solid #fff; outline-offset: 2px; }
+
+  #log { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow: auto; }
+  #log li { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+  #log li:last-child { border-bottom: 0; }
+  #log time { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; padding-top: 2px; flex: none; }
+  #log li.stop { color: #ff9a9b; font-weight: 700; }
+  #log .empty { color: var(--muted); }
+  .kbd { color: var(--muted); font-size: 12px; line-height: 1.9; }
+  kbd { background: var(--panel2); border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px; font: 12px ui-monospace, monospace; color: var(--text); }
+
+  /* Control bar */
+  .bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; background: rgba(11,13,16,.92); backdrop-filter: blur(10px);
+         border-top: 1px solid var(--border); padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); }
+  .bar .inner { max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 10px; }
+  .btn { min-height: 52px; border-radius: 12px; border: 1px solid var(--border); background: var(--panel2);
+         font-weight: 700; cursor: pointer; padding: 0 14px; }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+  .btn.primary { background: var(--accent); color: #111; border-color: var(--accent); font-size: 17px; }
+  .btn.danger { background: var(--danger); border-color: var(--danger); color: #fff; font-size: 17px; }
+  .btn[aria-pressed="true"] { background: #3a2b0a; border-color: var(--accent); color: var(--accent); }
+  .toast { position: fixed; left: 50%; bottom: 92px; transform: translateX(-50%); background: #2a1416; border: 1px solid var(--danger);
+           color: #ffd9d9; padding: 10px 16px; border-radius: 10px; font-size: 14px; max-width: calc(100% - 32px); z-index: 6; display: none; }
+  .toast.show { display: block; }
+  @media (max-width: 520px) {
+    .brand p { display: none; }
+    .bar .inner { grid-template-columns: 1fr 1fr; }
+    .bar .btn.primary, .bar .btn.danger { grid-column: 1 / -1; }
+    .app { padding-bottom: 150px; }
+    .toast { bottom: 150px; }
+  }
 </style>
 </head>
 <body>
-<header>
-  <h1>Real-Time Actionable Guidance</h1>
-  <p>Camera to short spoken instructions for visually impaired users</p>
-</header>
-
-<main>
-  <section>
-    <div class="stage">
-      <div class="placeholder" id="placeholder">Press Start to turn on the camera and voice guidance.</div>
-      <video id="video" playsinline muted></video>
-      <canvas id="overlay"></canvas>
+<div class="app">
+  <header>
+    <div class="brand">
+      <div class="logo" aria-hidden="true">AG</div>
+      <div><h1>Actionable Guidance</h1><p>Live camera to short spoken instructions</p></div>
     </div>
-    <div id="banner" role="status" aria-live="off">Ready</div>
-  </section>
+    <div class="conn" id="conn"><span class="dot"></span><span id="connText">Offline</span></div>
+  </header>
 
-  <section class="side">
-    <div class="panel">
-      <h2>Controls</h2>
-      <div class="controls">
-        <button id="start" class="primary">Start</button>
-        <button id="stop" disabled>Stop</button>
-        <button id="read" disabled>Read text</button>
-        <button id="mute" aria-pressed="false">Mute voice</button>
+  <div class="layout">
+    <section aria-label="Live view">
+      <div class="stage" id="stage">
+        <video id="video" playsinline muted></video>
+        <canvas id="overlay" width="640" height="480"></canvas>
+        <div class="chips" id="chips" hidden>
+          <span class="chip"><b id="fpsChip">0</b> FPS</span>
+          <span class="chip"><b id="latChip">0</b> ms</span>
+        </div>
+        <div class="zones" id="zones" hidden>
+          <div class="zone">Left</div><div class="zone mid">Ahead</div><div class="zone">Right</div>
+        </div>
+        <div class="placeholder" id="placeholder">
+          <div>
+            <div class="icon" aria-hidden="true">&#128247;</div>
+            <h2>Ready to guide</h2>
+            <p>Start the camera to hear short instructions like "Stop! person ahead" or "chair on left".</p>
+            <button class="btn primary" id="startBig" style="min-width:200px">Start guidance</button>
+          </div>
+        </div>
       </div>
-      <div class="status" id="status">Not connected</div>
-    </div>
 
-    <div class="panel">
-      <h2>Performance</h2>
-      <div class="stats">
-        <div class="stat"><b id="fps">0</b><span>FPS</span></div>
-        <div class="stat"><b id="lat">0</b><span>Server ms</span></div>
-        <div class="stat"><b id="rtt">0</b><span>Round trip ms</span></div>
+      <div class="banner clear" id="banner" role="status">
+        <div class="arrow" id="arrow" aria-hidden="true">&#10003;</div>
+        <div>
+          <div class="text" id="bannerText">Ready</div>
+          <div class="sub" id="bannerSub">Press Start to begin</div>
+        </div>
       </div>
-    </div>
 
-    <div class="panel">
-      <h2>Spoken instructions</h2>
-      <ul id="log"></ul>
-    </div>
-  </section>
-</main>
+      <div class="sectors" aria-label="What is in each zone">
+        <div class="sector" id="sec-left"><small>Left</small><b>Clear</b></div>
+        <div class="sector" id="sec-ahead"><small>Ahead</small><b>Clear</b></div>
+        <div class="sector" id="sec-right"><small>Right</small><b>Clear</b></div>
+      </div>
+    </section>
+
+    <aside class="side">
+      <div class="card">
+        <h3>Performance</h3>
+        <div class="stats">
+          <div class="stat"><b id="fps">0</b><span>FPS</span></div>
+          <div class="stat"><b id="lat">0</b><span>Model ms</span></div>
+          <div class="stat"><b id="rtt">0</b><span>Round trip</span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Spoken instructions</h3>
+        <ul id="log"><li class="empty">Nothing spoken yet.</li></ul>
+      </div>
+
+      <div class="card">
+        <h3>Settings</h3>
+        <div class="row"><label for="rate">Speech speed<small id="rateVal">1.1x</small></label>
+          <input type="range" id="rate" min="0.7" max="1.6" step="0.1" value="1.1"></div>
+        <div class="row"><label for="boxes">Show boxes<small>Draw detections on the video</small></label>
+          <span class="switch"><input type="checkbox" id="boxes" checked><span></span></span></div>
+        <div class="row"><label for="vibe">Vibrate on Stop<small>Phones only</small></label>
+          <span class="switch"><input type="checkbox" id="vibe" checked><span></span></span></div>
+      </div>
+
+      <div class="card kbd">
+        <h3>Shortcuts</h3>
+        <kbd>Space</kbd> start / stop &nbsp; <kbd>R</kbd> read text &nbsp; <kbd>M</kbd> mute
+      </div>
+    </aside>
+  </div>
+</div>
+
+<div class="bar">
+  <div class="inner">
+    <button class="btn primary" id="toggle">Start guidance</button>
+    <button class="btn" id="read" disabled>Read text</button>
+    <button class="btn" id="mute" aria-pressed="false">Mute</button>
+  </div>
+</div>
+<div class="toast" id="toast" role="alert"></div>
 
 <script>
 const $ = (id) => document.getElementById(id);
 const video = $("video"), overlay = $("overlay"), ctx = overlay.getContext("2d");
-const capture = document.createElement("canvas");
-capture.width = 640; capture.height = 480;
-const cctx = capture.getContext("2d");
+const cap = document.createElement("canvas"); cap.width = 640; cap.height = 480;
+const cctx = cap.getContext("2d");
 
-let ws = null, stream = null, running = false, muted = false;
-let lastUrgent = { text: "", at: 0 };
-let lastDets = [], frames = 0, fpsTimer = 0, lastBanner = "";
-
+const RANK = { far: 1, near: 2, immediate: 3 };
 const COLORS = { immediate: "#ff4d4f", near: "#ffb020", far: "#3ddc84" };
 
-function setBanner(text, kind) {
-  if (text === lastBanner) return;
-  lastBanner = text;
-  const b = $("banner");
-  b.textContent = text;
-  b.className = kind || "";
+let ws = null, stream = null, running = false, muted = false, busy = false;
+let frames = 0, fpsTimer = 0, sentAt = 0, lastBanner = "", lastUrgent = { text: "", at: 0 };
+let settings = { rate: 1.1, boxes: true, vibe: true };
+
+try { Object.assign(settings, JSON.parse(localStorage.getItem("ag-settings") || "{}")); } catch (e) {}
+function saveSettings() { try { localStorage.setItem("ag-settings", JSON.stringify(settings)); } catch (e) {} }
+
+/* ---------- UI helpers ---------- */
+function setConn(state, text) {
+  $("conn").className = "conn " + state;
+  $("connText").textContent = text;
+}
+let toastTimer;
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 5000);
+}
+function arrowFor(text) {
+  const t = text.toLowerCase();
+  if (t.includes(" left")) return "←";
+  if (t.includes(" right")) return "→";
+  return "↑";
+}
+function setBanner(text, kind, sub, arrow) {
+  const key = text + "|" + kind + "|" + sub;
+  if (key === lastBanner) return;
+  lastBanner = key;
+  $("banner").className = "banner " + kind;
+  $("bannerText").textContent = text;
+  $("bannerSub").textContent = sub || "";
+  $("arrow").textContent = arrow || (kind === "clear" ? "✓" : "↑");
+  $("stage").classList.toggle("alert", kind === "stop");
+}
+function logLine(text, urgent) {
+  const log = $("log");
+  const empty = log.querySelector(".empty"); if (empty) empty.remove();
+  const li = document.createElement("li"); if (urgent) li.className = "stop";
+  const time = document.createElement("time");
+  time.textContent = new Date().toLocaleTimeString([], { hour12: false });
+  const span = document.createElement("span"); span.textContent = text;
+  li.append(time, span); log.prepend(li);
+  while (log.children.length > 40) log.lastChild.remove();
 }
 
+/* ---------- Speech ---------- */
 function speak(text, urgent) {
   if (muted || !("speechSynthesis" in window)) return;
-  const synth = window.speechSynthesis;
-  const now = performance.now();
+  const synth = window.speechSynthesis, now = performance.now();
   if (urgent) {
-    // Do not repeat the same urgent phrase or cut it off while it is still being spoken
+    // Never repeat the same urgent phrase, or cut it off while it is being spoken
     if (text === lastUrgent.text && (synth.speaking || now - lastUrgent.at < 4000)) return;
     lastUrgent = { text, at: now };
     synth.cancel();
   } else if (synth.speaking) return; // drop stale chatter, never build a backlog
   const u = new SpeechSynthesisUtterance(text);
-  u.rate = 1.1;
+  u.rate = settings.rate;
   synth.speak(u);
 }
 
-function logLine(text, urgent) {
-  const li = document.createElement("li");
-  if (urgent) li.className = "stop";
-  const t = new Date().toLocaleTimeString([], { hour12: false });
-  li.innerHTML = `<small>${t}</small>`;
-  li.appendChild(document.createTextNode(text));
-  const log = $("log");
-  log.prepend(li);
-  while (log.children.length > 40) log.lastChild.remove();
-}
-
-function draw(dets, w, h) {
-  overlay.width = w; overlay.height = h;
-  ctx.clearRect(0, 0, w, h);
-  ctx.strokeStyle = "rgba(255,255,255,.35)"; ctx.lineWidth = 1;
-  for (const r of [0.35, 0.65]) {
-    ctx.beginPath(); ctx.moveTo(w * r, 0); ctx.lineTo(w * r, h); ctx.stroke();
-  }
-  ctx.font = "16px system-ui";
+/* ---------- Drawing ---------- */
+function draw(dets) {
+  ctx.clearRect(0, 0, 640, 480);
+  ctx.strokeStyle = "rgba(255,255,255,.28)"; ctx.lineWidth = 1; ctx.setLineDash([6, 6]);
+  for (const r of [0.35, 0.65]) { ctx.beginPath(); ctx.moveTo(640 * r, 0); ctx.lineTo(640 * r, 480); ctx.stroke(); }
+  ctx.setLineDash([]);
+  if (!settings.boxes) return;
+  ctx.font = "600 15px system-ui, sans-serif";
   for (const d of dets) {
-    const [x1, y1, x2, y2] = d.bbox;
-    const c = COLORS[d.proximity];
+    const [x1, y1, x2, y2] = d.bbox, c = COLORS[d.proximity];
     ctx.strokeStyle = c; ctx.lineWidth = d.proximity === "immediate" ? 4 : 2;
     ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
     const label = `${d.label} ${Math.round(d.confidence * 100)}%`;
-    const tw = ctx.measureText(label).width + 8;
-    ctx.fillStyle = c; ctx.fillRect(x1, Math.max(0, y1 - 22), tw, 22);
-    ctx.fillStyle = "#111"; ctx.fillText(label, x1 + 4, Math.max(16, y1 - 6));
+    const w = ctx.measureText(label).width + 10, ly = Math.max(0, y1 - 22);
+    ctx.fillStyle = c; ctx.fillRect(x1, ly, w, 22);
+    ctx.fillStyle = "#111"; ctx.fillText(label, x1 + 5, ly + 16);
   }
 }
+function updateSectors(dets) {
+  for (const dir of ["left", "ahead", "right"]) {
+    let best = null;
+    for (const d of dets) if (d.direction === dir &&
+      (!best || RANK[d.proximity] > RANK[best.proximity] ||
+       (RANK[d.proximity] === RANK[best.proximity] && d.confidence > best.confidence))) best = d;
+    const el = $("sec-" + dir);
+    el.className = "sector" + (best ? " " + best.proximity : "");
+    el.querySelector("b").textContent = best ? `${best.label} (${best.proximity})` : "Clear";
+  }
+}
+function resetSectors() { updateSectors([]); ctx.clearRect(0, 0, 640, 480); }
 
+/* ---------- Streaming loop ---------- */
 function sendFrame() {
-  if (!running || ws.readyState !== WebSocket.OPEN) return;
+  if (!running || !ws || ws.readyState !== WebSocket.OPEN || busy) return;
+  busy = true;
   cctx.drawImage(video, 0, 0, 640, 480);
-  const t0 = performance.now();
-  capture.toBlob((blob) => {
-    if (!running || ws.readyState !== WebSocket.OPEN) return;
-    ws._t0 = t0;
+  cap.toBlob((blob) => {
+    if (!running || !ws || ws.readyState !== WebSocket.OPEN) { busy = false; return; }
+    sentAt = performance.now();
     ws.send(blob);
   }, "image/jpeg", 0.7);
 }
-
-function onResult(msg) {
-  const res = JSON.parse(msg.data);
+function onResult(ev) {
+  busy = false;
+  const res = JSON.parse(ev.data);
   if (res.error) { sendFrame(); return; }
-  $("rtt").textContent = Math.round(performance.now() - ws._t0);
-  $("lat").textContent = Math.round(res.latency_ms);
-  frames++;
+
   const now = performance.now();
+  $("rtt").textContent = Math.round(now - sentAt);
+  $("lat").textContent = $("latChip").textContent = Math.round(res.latency_ms);
+  frames++;
   if (now - fpsTimer >= 1000) {
-    $("fps").textContent = Math.round(frames * 1000 / (now - fpsTimer));
+    $("fps").textContent = $("fpsChip").textContent = Math.round(frames * 1000 / (now - fpsTimer));
     frames = 0; fpsTimer = now;
   }
-  lastDets = res.detections;
-  draw(res.detections, res.width, res.height);
+
+  draw(res.detections);
+  updateSectors(res.detections);
+
   if (res.instruction) {
-    setBanner(res.instruction, res.emergency ? "stop" : "info");
+    setBanner(res.instruction, res.emergency ? "stop" : "info",
+              res.emergency ? "Immediate hazard" : "Guidance", arrowFor(res.instruction));
     logLine(res.instruction, res.emergency);
     speak(res.instruction, res.emergency);
+    if (res.emergency && settings.vibe && navigator.vibrate) navigator.vibrate([180, 80, 180]);
   } else if (!res.detections.length) {
-    setBanner("Path clear", "");
+    setBanner("Path clear", "clear", "No obstacles detected", "✓");
   }
   sendFrame(); // next frame only after this reply: no queueing, lowest latency
 }
 
+/* ---------- Start / stop ---------- */
 async function start() {
-  $("start").disabled = true;
-  $("status").textContent = "Starting camera...";
+  $("toggle").disabled = true; $("startBig").disabled = true;
+  setConn("", "Starting camera...");
   try {
     stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: 640, height: 480, facingMode: "environment" }, audio: false });
+      video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "environment" }, audio: false });
   } catch (e) {
-    $("status").textContent = "Camera blocked or missing: " + e.message;
-    $("start").disabled = false; return;
+    setConn("err", "Camera unavailable");
+    toast("Camera blocked or not found. Allow camera access and use localhost or HTTPS. (" + e.name + ")");
+    $("toggle").disabled = false; $("startBig").disabled = false; return;
   }
   video.srcObject = stream; await video.play();
-  $("placeholder").style.display = "none";
 
+  setConn("", "Connecting...");
   const proto = location.protocol === "https:" ? "wss" : "ws";
   ws = new WebSocket(`${proto}://${location.host}/ws`);
   ws.onopen = () => {
-    running = true; fpsTimer = performance.now(); frames = 0;
-    $("stop").disabled = false; $("read").disabled = false;
-    $("status").textContent = "Connected. Guidance running.";
-    setBanner("Guidance system active", "info");
+    running = true; busy = false; frames = 0; fpsTimer = performance.now();
+    $("placeholder").hidden = true; $("chips").hidden = false; $("zones").hidden = false;
+    $("toggle").textContent = "Stop guidance"; $("toggle").className = "btn danger"; $("toggle").disabled = false;
+    $("read").disabled = false;
+    setConn("live", "Live");
+    setBanner("Guidance active", "info", "Listening to the scene", "↑");
     speak("Guidance system active", false);
     sendFrame();
   };
   ws.onmessage = onResult;
-  ws.onclose = () => { if (running) stop("Connection lost"); };
-  ws.onerror = () => { $("status").textContent = "Cannot reach the backend."; };
+  ws.onerror = () => { setConn("err", "Backend unreachable"); };
+  ws.onclose = () => stop(running ? "Connection lost" : "Backend unreachable");
 }
-
 function stop(reason) {
-  running = false;
-  if (ws) ws.close();
-  if (stream) stream.getTracks().forEach((t) => t.stop());
-  video.srcObject = null;
-  ctx.clearRect(0, 0, overlay.width, overlay.height);
-  $("placeholder").style.display = "grid";
-  $("start").disabled = false; $("stop").disabled = true; $("read").disabled = true;
-  $("status").textContent = reason || "Stopped";
-  setBanner("Ready", "");
-  window.speechSynthesis && window.speechSynthesis.cancel();
+  running = false; busy = false;
+  if (ws) { ws.onclose = null; ws.close(); ws = null; }
+  if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }
+  video.srcObject = null; resetSectors();
+  $("placeholder").hidden = false; $("chips").hidden = true; $("zones").hidden = true;
+  $("toggle").textContent = "Start guidance"; $("toggle").className = "btn primary"; $("toggle").disabled = false;
+  $("startBig").disabled = false; $("read").disabled = true;
+  setConn(reason ? "err" : "", reason || "Offline");
+  if (reason) toast(reason + ". Check that the server is running, then press Start.");
+  lastBanner = "";
+  setBanner("Ready", "clear", "Press Start to begin", "✓");
+  $("fps").textContent = $("rtt").textContent = $("lat").textContent = "0";
+  if ("speechSynthesis" in window) window.speechSynthesis.cancel();
 }
+function toggle() { running ? stop() : start(); }
 
+/* ---------- OCR ---------- */
 async function readText() {
+  if (!running || $("read").disabled) return;
   $("read").disabled = true;
-  $("status").textContent = "Reading text (first time can take a while)...";
+  const label = $("read").textContent; $("read").textContent = "Reading...";
+  setBanner("Reading text...", "info", "First read may take a few seconds", "Aa");
   cctx.drawImage(video, 0, 0, 640, 480);
-  const blob = await new Promise((r) => capture.toBlob(r, "image/jpeg", 0.9));
+  const blob = await new Promise((r) => cap.toBlob(r, "image/jpeg", 0.9));
   const form = new FormData(); form.append("image", blob, "frame.jpg");
   try {
     const res = await (await fetch("/api/ocr", { method: "POST", body: form })).json();
-    if (res.error) { setBanner("Text reading unavailable", "stop"); $("status").textContent = res.error; }
+    if (res.error) { setBanner("Text reading unavailable", "stop", res.error, "!"); toast(res.error); }
     else if (res.text) {
-      setBanner("Text: " + res.text, "info"); logLine("Text: " + res.text, false);
-      speak("Text says: " + res.text, true); $("status").textContent = "Guidance running.";
+      setBanner("Text: " + res.text, "info", "Read from camera", "Aa");
+      logLine("Text: " + res.text, false); speak("Text says: " + res.text, true);
     } else {
-      setBanner("No readable text", "info"); speak("No readable text found", true);
-      $("status").textContent = "Guidance running.";
+      setBanner("No readable text", "info", "Move closer and improve lighting", "Aa");
+      speak("No readable text found", true);
     }
-  } catch (e) { $("status").textContent = "OCR request failed."; }
-  $("read").disabled = !running;
+  } catch (e) { toast("Text request failed."); }
+  $("read").textContent = label; $("read").disabled = !running;
 }
 
-$("start").onclick = start;
-$("stop").onclick = () => stop();
-$("read").onclick = readText;
-$("mute").onclick = () => {
-  muted = !muted;
-  $("mute").textContent = muted ? "Unmute voice" : "Mute voice";
-  $("mute").setAttribute("aria-pressed", String(muted));
-  if (muted) window.speechSynthesis && window.speechSynthesis.cancel();
-};
+/* ---------- Controls ---------- */
+function setMute(m) {
+  muted = m; $("mute").textContent = m ? "Unmute" : "Mute";
+  $("mute").setAttribute("aria-pressed", String(m));
+  if (m && "speechSynthesis" in window) window.speechSynthesis.cancel();
+}
+$("toggle").onclick = toggle; $("startBig").onclick = start; $("read").onclick = readText;
+$("mute").onclick = () => setMute(!muted);
+
+$("rate").value = settings.rate; $("rateVal").textContent = Number(settings.rate).toFixed(1) + "x";
+$("boxes").checked = settings.boxes; $("vibe").checked = settings.vibe;
+$("rate").oninput = (e) => { settings.rate = +e.target.value; $("rateVal").textContent = settings.rate.toFixed(1) + "x"; saveSettings(); };
+$("boxes").onchange = (e) => { settings.boxes = e.target.checked; saveSettings(); };
+$("vibe").onchange = (e) => { settings.vibe = e.target.checked; saveSettings(); };
+
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT" || e.target.tagName === "BUTTON" && e.code === "Space" || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.code === "Space") { e.preventDefault(); toggle(); }
+  else if (e.key === "r" || e.key === "R") readText();
+  else if (e.key === "m" || e.key === "M") setMute(!muted);
+});
+resetSectors();
 </script>
 </body>
 </html>
