@@ -23,13 +23,16 @@ An edge-AI assistive prototype that converts live video stream into concise, pri
 mini_project/
 │
 ├── config.py                 # System thresholds, camera size, HRI weights, TTS rate
-├── main.py                   # Complete real-time pipeline (Camera -> YOLO -> HRI -> Speech)
+├── main.py                   # Desktop real-time pipeline (Camera -> YOLO -> HRI -> Speech)
+├── server.py                 # FastAPI backend for the web app
+├── web/index.html            # Browser UI (camera, boxes, banner, speech)
 ├── requirements.txt          # Python dependencies
 │
 ├── modules/
 │   ├── camera.py             # Frame capture & FPS calculation
 │   ├── detector.py           # YOLOv8 nano detection wrapper
 │   ├── instruction.py        # Direction & Hazard Risk Index prioritization logic
+│   ├── ocr_reader.py         # On-demand text reading (EasyOCR)
 │   └── tts_engine.py         # Non-blocking threaded speech synthesizer
 │
 ├── paper/
@@ -46,10 +49,31 @@ mini_project/
 
 ## 🛠️ Presentation quick start
 
-### 1. Activate Environment
+### 1. Set up the environment (first time only)
+
+**macOS / Linux**
 ```bash
+python3 -m venv .venv
 source .venv/bin/activate
+pip install -r requirements.txt
 ```
+
+**Windows (CMD)**
+```bat
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+**Windows (PowerShell)**
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+If PowerShell blocks the script, run `Set-ExecutionPolicy -Scope Process Bypass` first.
+On later runs, only the activate line is needed. Use `python3` instead of `python`
+on macOS/Linux if `python` is not found.
 
 ### 2. Run the Prototype
 ```bash
@@ -57,7 +81,7 @@ python main.py
 ```
 *(Press **'q'** in the video window to stop)*
 
-Before presenting, allow camera access when macOS asks. Keep a chair or a
+Before presenting, allow camera access when macOS or Windows asks (on Windows: Settings > Privacy > Camera). Keep a chair or a
 person in the centre of the camera view for a repeatable demo. A small object
 near either edge demonstrates the left/right cue; a large centre object should
 produce the red **Stop** cue.
@@ -105,7 +129,7 @@ python -m unittest tests/test_instruction.py
 ---
 
 ## 📄 Research Paper
-The academic paper draft is saved in [paper/research_paper_draft.md](file:///Users/mayankraj/developer/mini_project/paper/research_paper_draft.md). It contains:
+The academic paper draft is saved in [paper/research_paper_draft.md](paper/research_paper_draft.md). It contains:
 - Abstract & Introduction
 - Related Work Matrix (comparing Be My AI, Seeing AI, Envision, DeepNAVI, DrishT)
 - Methodology & Mathematical formulation of the Hazard Risk Index
