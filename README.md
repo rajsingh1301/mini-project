@@ -82,6 +82,16 @@ recognition model.
 EasyOCR stores its downloaded model files locally in `models/easyocr/` inside
 this project, so the text-reading demo also works after the initial download.
 
+### 2b. Run the Web App (frontend + backend)
+```bash
+uvicorn server:app --port 8000
+```
+Open http://localhost:8000, press **Start**, allow the camera. The browser sends
+frames to the FastAPI backend over a WebSocket (`/ws`), draws the returned boxes,
+shows the action banner and speaks instructions with the browser's speech
+synthesis. **Read text** calls `POST /api/ocr`. Camera access needs `localhost`
+or HTTPS.
+
 ### 3. Run Benchmark (To get numbers for your Research Paper)
 ```bash
 python tests/test_benchmark.py

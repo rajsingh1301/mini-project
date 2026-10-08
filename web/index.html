@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Actionable Guidance</title>
+<style>
+  :root {
+    --bg: #101214; --panel: #1a1d21; --text: #f2f4f7; --muted: #9aa4b2;
+    --accent: #ffd54a; --danger: #ff4d4f; --ok: #3ddc84; --warn: #ffb020;
+    --border: #2a2f36;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 16px/1.4 system-ui, -apple-system, Segoe UI, sans-serif; }
+  header { padding: 14px 16px; border-bottom: 1px solid var(--border); }
+  header h1 { margin: 0; font-size: 18px; }
+  header p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+  main { display: grid; gap: 16px; padding: 16px; max-width: 1100px; margin: 0 auto;
+         grid-template-columns: 1fr; }
+  @media (min-width: 900px) { main { grid-template-columns: 2fr 1fr; } }
+  .stage { position: relative; background: #000; border-radius: 10px; overflow: hidden;
+           aspect-ratio: 4 / 3; border: 1px solid var(--border); }
+  video, canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+  .placeholder { position: absolute; inset: 0; display: grid; place-items: center;
+                 color: var(--muted); text-align: center; padding: 20px; }
+  #banner { margin-top: 12px; padding: 18px 16px; border-radius: 10px; background: var(--panel);
+            border: 2px solid var(--border); font-size: clamp(22px, 5vw, 34px); font-weight: 700;
+            min-height: 72px; display: flex; align-items: center; }
+  #banner.stop { border-color: var(--danger); color: var(--danger); }
+  #banner.info { border-color: var(--accent); color: var(--accent); }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+  .panel h2 { margin: 0 0 10px; font-size: 14px; color: var(--muted); font-weight: 600;
+              text-transform: uppercase; letter-spacing: .04em; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; }
+  button { font: inherit; font-weight: 600; padding: 12px 16px; border-radius: 8px; cursor: pointer;
+           border: 1px solid var(--border); background: #262b31; color: var(--text); min-height: 44px; }
+  button.primary { background: var(--accent); color: #111; border-color: var(--accent); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; text-align: center; }
+  .stat b { display: block; font-size: 24px; }
+  .stat span { color: var(--muted); font-size: 12px; }
+  #log { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow: auto; font-size: 14px; }
+  #log li { padding: 6px 0; border-bottom: 1px solid var(--border); }
+  #log li small { color: var(--muted); margin-right: 6px; }
+  #log li.stop { color: var(--danger); }
+  .status { font-size: 13px; color: var(--muted); margin-top: 8px; }
+  .side { display: grid; gap: 16px; align-content: start; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Real-Time Actionable Guidance</h1>
+  <p>Camera to short spoken instructions for visually impaired users</p>
+</header>
+
+<main>
+  <section>
+    <div class="stage">
+      <div class="placeholder" id="placeholder">Press Start to turn on the camera and voice guidance.</div>
+      <video id="video" playsinline muted></video>
+      <canvas id="overlay"></canvas>
+    </div>
+    <div id="banner" role="status" aria-live="off">Ready</div>
+  </section>
+
+  <section class="side">
+    <div class="panel">
+      <h2>Controls</h2>
+      <div class="controls">
+        <button id="start" class="primary">Start</button>
+        <button id="stop" disabled>Stop</button>
+        <button id="read" disabled>Read text</button>
+        <button id="mute" aria-pressed="false">Mute voice</button>
+      </div>
+      <div class="status" id="status">Not connected</div>
+    </div>
+
+    <div class="panel">
+      <h2>Performance</h2>
+      <div class="stats">
+        <div class="stat"><b id="fps">0</b><span>FPS</span></div>
+        <div class="stat"><b id="lat">0</b><span>Server ms</span></div>
+        <div class="stat"><b id="rtt">0</b><span>Round trip ms</span></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Spoken instructions</h2>
+      <ul id="log"></ul>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const video = $("video"), overlay = $("overlay"), ctx = overlay.getContext("2d");
+const capture = document.createElement("canvas");
+capture.width = 640; capture.height = 480;
+const cctx = capture.getContext("2d");
+
+let ws = null, stream = null, running = false, muted = false;
+let lastDets = [], frames = 0, fpsTimer = 0, lastBanner = "";
+
+const COLORS = { immediate: "#ff4d4f", near: "#ffb020", far: "#3ddc84" };
+
+function setBanner(text, kind) {
+  if (text === lastBanner) return;
+  lastBanner = text;
+  const b = $("banner");
+  b.textContent = text;
+  b.className = kind || "";
+}
+
+function speak(text, urgent) {
+  if (muted || !("speechSynthesis" in window)) return;
+  const synth = window.speechSynthesis;
+  if (urgent) synth.cancel();
+  else if (synth.speaking) return; // drop stale chatter, never build a backlog
+  const u = new SpeechSynthesisUtterance(text);
+  u.rate = 1.1;
+  synth.speak(u);
+}
+
+function logLine(text, urgent) {
+  const li = document.createElement("li");
+  if (urgent) li.className = "stop";
+  const t = new Date().toLocaleTimeString([], { hour12: false });
+  li.innerHTML = `<small>${t}</small>`;
+  li.appendChild(document.createTextNode(text));
+  const log = $("log");
+  log.prepend(li);
+  while (log.children.length > 40) log.lastChild.remove();
+}
+
+function draw(dets, w, h) {
+  overlay.width = w; overlay.height = h;
+  ctx.clearRect(0, 0, w, h);
+  ctx.strokeStyle = "rgba(255,255,255,.35)"; ctx.lineWidth = 1;
+  for (const r of [0.35, 0.65]) {
+    ctx.beginPath(); ctx.moveTo(w * r, 0); ctx.lineTo(w * r, h); ctx.stroke();
+  }
+  ctx.font = "16px system-ui";
+  for (const d of dets) {
+    const [x1, y1, x2, y2] = d.bbox;
+    const c = COLORS[d.proximity];
+    ctx.strokeStyle = c; ctx.lineWidth = d.proximity === "immediate" ? 4 : 2;
+    ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+    const label = `${d.label} ${Math.round(d.confidence * 100)}%`;
+    const tw = ctx.measureText(label).width + 8;
+    ctx.fillStyle = c; ctx.fillRect(x1, Math.max(0, y1 - 22), tw, 22);
+    ctx.fillStyle = "#111"; ctx.fillText(label, x1 + 4, Math.max(16, y1 - 6));
+  }
+}
+
+function sendFrame() {
+  if (!running || ws.readyState !== WebSocket.OPEN) return;
+  cctx.drawImage(video, 0, 0, 640, 480);
+  const t0 = performance.now();
+  capture.toBlob((blob) => {
+    if (!running || ws.readyState !== WebSocket.OPEN) return;
+    ws._t0 = t0;
+    ws.send(blob);
+  }, "image/jpeg", 0.7);
+}
+
+function onResult(msg) {
+  const res = JSON.parse(msg.data);
+  if (res.error) { sendFrame(); return; }
+  $("rtt").textContent = Math.round(performance.now() - ws._t0);
+  $("lat").textContent = Math.round(res.latency_ms);
+  frames++;
+  const now = performance.now();
+  if (now - fpsTimer >= 1000) {
+    $("fps").textContent = Math.round(frames * 1000 / (now - fpsTimer));
+    frames = 0; fpsTimer = now;
+  }
+  lastDets = res.detections;
+  draw(res.detections, res.width, res.height);
+  if (res.instruction) {
+    setBanner(res.instruction, res.emergency ? "stop" : "info");
+    logLine(res.instruction, res.emergency);
+    speak(res.instruction, res.emergency);
+  } else if (!res.detections.length) {
+    setBanner("Path clear", "");
+  }
+  sendFrame(); // next frame only after this reply: no queueing, lowest latency
+}
+
+async function start() {
+  $("start").disabled = true;
+  $("status").textContent = "Starting camera...";
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: 640, height: 480, facingMode: "environment" }, audio: false });
+  } catch (e) {
+    $("status").textContent = "Camera blocked or missing: " + e.message;
+    $("start").disabled = false; return;
+  }
+  video.srcObject = stream; await video.play();
+  $("placeholder").style.display = "none";
+
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  ws = new WebSocket(`${proto}://${location.host}/ws`);
+  ws.onopen = () => {
+    running = true; fpsTimer = performance.now(); frames = 0;
+    $("stop").disabled = false; $("read").disabled = false;
+    $("status").textContent = "Connected. Guidance running.";
+    setBanner("Guidance system active", "info");
+    speak("Guidance system active", false);
+    sendFrame();
+  };
+  ws.onmessage = onResult;
+  ws.onclose = () => { if (running) stop("Connection lost"); };
+  ws.onerror = () => { $("status").textContent = "Cannot reach the backend."; };
+}
+
+function stop(reason) {
+  running = false;
+  if (ws) ws.close();
+  if (stream) stream.getTracks().forEach((t) => t.stop());
+  video.srcObject = null;
+  ctx.clearRect(0, 0, overlay.width, overlay.height);
+  $("placeholder").style.display = "grid";
+  $("start").disabled = false; $("stop").disabled = true; $("read").disabled = true;
+  $("status").textContent = reason || "Stopped";
+  setBanner("Ready", "");
+  window.speechSynthesis && window.speechSynthesis.cancel();
+}
+
+async function readText() {
+  $("read").disabled = true;
+  $("status").textContent = "Reading text (first time can take a while)...";
+  cctx.drawImage(video, 0, 0, 640, 480);
+  const blob = await new Promise((r) => capture.toBlob(r, "image/jpeg", 0.9));
+  const form = new FormData(); form.append("image", blob, "frame.jpg");
+  try {
+    const res = await (await fetch("/api/ocr", { method: "POST", body: form })).json();
+    if (res.error) { setBanner("Text reading unavailable", "stop"); $("status").textContent = res.error; }
+    else if (res.text) {
+      setBanner("Text: " + res.text, "info"); logLine("Text: " + res.text, false);
+      speak("Text says: " + res.text, true); $("status").textContent = "Guidance running.";
+    } else {
+      setBanner("No readable text", "info"); speak("No readable text found", true);
+      $("status").textContent = "Guidance running.";
+    }
+  } catch (e) { $("status").textContent = "OCR request failed."; }
+  $("read").disabled = !running;
+}
+
+$("start").onclick = start;
+$("stop").onclick = () => stop();
+$("read").onclick = readText;
+$("mute").onclick = () => {
+  muted = !muted;
+  $("mute").textContent = muted ? "Unmute voice" : "Mute voice";
+  $("mute").setAttribute("aria-pressed", String(muted));
+  if (muted) window.speechSynthesis && window.speechSynthesis.cancel();
+};
+</script>
+</body>
+</html>

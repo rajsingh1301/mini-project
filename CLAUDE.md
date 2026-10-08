@@ -7,6 +7,7 @@ Constraints: low latency, runs on a laptop/Colab, no expensive hardware, offline
 
 ## Architecture / Pipeline
 Camera -> Detector (YOLOv8n) -> Instruction Generator (direction + proximity + HRI + throttling) -> TTS (threaded queue). Plus on-demand OCR (press `r`).
+Two front ends share the same modules: the desktop OpenCV app (`main.py`) and a web app (`server.py` + `web/index.html`). In the web app the browser owns camera and speech; the backend only does detection, instructions and OCR.
 
 Data flow in [main.py](main.py), per loop iteration:
 1. `VideoStream.read()` returns a 640x480 BGR frame (falls back to a synthetic "no camera" frame; detection is skipped then).
@@ -21,11 +22,13 @@ Data flow in [main.py](main.py), per loop iteration:
 6. Key `r`: `TextReader.read(frame)` (EasyOCR, lazy-loaded, CPU) runs synchronously and the text is spoken. Key `q` quits.
 
 ## Tech Stack
-Python, OpenCV (`opencv-python`), Ultralytics YOLOv8n (`yolov8n.pt`, COCO weights), pyttsx3, EasyOCR, numpy. Dependencies are in [requirements.txt](requirements.txt). Tests use `unittest`.
+Python, FastAPI + uvicorn (WebSocket), vanilla JS frontend, OpenCV (`opencv-python`), Ultralytics YOLOv8n (`yolov8n.pt`, COCO weights), pyttsx3, EasyOCR, numpy. Dependencies are in [requirements.txt](requirements.txt). Tests use `unittest`.
 
 ## Folder Structure
 - `config.py`: all thresholds, class weights, camera, TTS and OCR settings
-- `main.py`: entry point, main loop and HUD
+- `main.py`: desktop entry point, main loop and HUD
+- `server.py`: FastAPI backend (`/ws` frame stream, `POST /api/ocr`, `/api/health`, serves `web/`)
+- `web/index.html`: single-file browser UI (camera, canvas boxes, banner, speechSynthesis, log)
 - `modules/`: `camera.py`, `detector.py`, `instruction.py`, `ocr_reader.py`, `tts_engine.py`
 - `tests/`: `test_instruction.py`, `test_benchmark.py`, `test_camera.py`, `test_tts.py`
 - `paper/research_paper_draft.md`: IEEE-style paper draft
@@ -35,7 +38,8 @@ Python, OpenCV (`opencv-python`), Ultralytics YOLOv8n (`yolov8n.pt`, COCO weight
 ```bash
 source .venv/bin/activate
 pip install -r requirements.txt
-python main.py                              # live demo; q = quit, r = read text
+python main.py                              # desktop demo; q = quit, r = read text
+uvicorn server:app --port 8000              # web app at http://localhost:8000
 python tests/test_benchmark.py              # latency/FPS numbers for the paper
 python -m unittest tests/test_instruction.py
 python tests/test_camera.py                 # standalone camera check
@@ -54,6 +58,7 @@ macOS asks for camera permission on first run.
 
 ## Current Status
 **Done**
+- Web app: FastAPI backend and browser UI (tested with a real image over WebSocket and OCR; browser camera path not yet tested by me)
 - Camera capture with FPS, YOLOv8n detection, left/ahead/right zoning
 - Proximity levels, HRI ranking, speech throttling
 - Non-blocking TTS, HUD
