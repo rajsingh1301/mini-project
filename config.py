@@ -28,6 +28,19 @@ STRUCTURE_CLASSES = ["door", "stairs"]   # Index order of the trained model
 STRUCTURE_CONF = {"door": 0.45, "stairs": 0.40}
 STRUCTURE_EVERY_N_FRAMES = 2  # Run it on every Nth frame and reuse the result in between
 
+# Stairs direction: a small classifier looks at each stairs crop and says up or down.
+# Trained by training/train_stairs_direction.py from your own clips; skipped if missing,
+# and then stairs are announced without a direction.
+STAIRS_DIRECTION_MODEL = MODELS_DIR / "stairs_direction.pt"
+STAIRS_DIRECTION_IMGSZ = 224
+STAIRS_DIRECTION_PAD = 0.1         # Grow the crop by 10% per side so the floor edge is visible
+STAIRS_DIRECTION_CONF = 0.75       # Classifier confidence needed for a frame to count as a vote
+STAIRS_DIRECTION_WINDOW = 8        # Recent votes kept per tracked staircase
+STAIRS_DIRECTION_MIN_VOTES = 3     # Votes needed before a direction is spoken
+STAIRS_DIRECTION_AGREEMENT = 0.75  # Share of recent votes that must agree
+STAIRS_DIRECTION_MIN_ACCURACY = 0.85  # The training script installs the model only above this
+STAIRS_DOWN_WEIGHT = 1.5           # Class weight for stairs going down (fall risk, above "stairs")
+
 # Important obstacle & hazard classes. Priority weights (higher means higher hazard risk)
 PRIORITY_CLASSES = {
     "stairs": 1.2,           # Fall risk: highest weight

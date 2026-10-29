@@ -78,6 +78,27 @@ class TestInstructionGenerator(unittest.TestCase):
         person = det("person", 0.2, 0.09)                    # near, off to the left
         self.assertEqual(self.engine.generate_instruction([person, stairs], now=100.0), "Stairs ahead, slow down")
 
+    def test_stairs_direction_phrases(self):
+        build = InstructionGenerator.build_phrase
+        self.assertEqual(build("stairs", "ahead", "immediate", stairs_dir="down"), "Stop! stairs going down ahead")
+        self.assertEqual(build("stairs", "ahead", "near", stairs_dir="up"), "Stairs going up ahead, slow down")
+        self.assertEqual(build("stairs", "left", "near", stairs_dir="down"), "Stairs going down on your left")
+        self.assertEqual(build("stairs", "ahead", "near"), "Stairs ahead, slow down")
+
+    def test_stairs_down_outranks_stairs_up(self):
+        down = det("stairs", 0.5, 0.2, norm_bottom=0.8, stairs_dir="down")   # near
+        up = det("stairs", 0.5, 0.2, norm_bottom=0.8, stairs_dir="up")
+        score = lambda d: self.engine.compute_hazard_score(d, "ahead", "near")
+        self.assertGreater(score(down), score(up))
+
+    def test_new_stairs_direction_is_announced_without_waiting(self):
+        stairs = det("stairs", 0.5, 0.2, norm_bottom=0.8)
+        self.assertEqual(self.engine.generate_instruction([stairs], now=100.0), "Stairs ahead, slow down")
+        stairs["stairs_dir"] = "down"
+        # Within the 4 s same-object throttle, but the direction is new information
+        later = 100.0 + config.MIN_GAP_SECONDS
+        self.assertEqual(self.engine.generate_instruction([stairs], now=later), "Stairs going down ahead, slow down")
+
     def test_door_phrases(self):
         self.assertEqual(self.engine.generate_instruction([det("door", 0.2, 0.1)], now=100.0), "Door on your left")
         self.assertEqual(InstructionGenerator.build_phrase("door", "ahead", "immediate"), "Door just ahead")

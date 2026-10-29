@@ -36,7 +36,7 @@ def draw_hud(frame, detections, active_instruction, fps, latency_ms, proximity_o
     # 2. Draw Detections
     for det in detections:
         x1, y1, x2, y2 = det["bbox"]
-        cls_name = det["class_name"]
+        cls_name = det["class_name"] + (f" {det['stairs_dir']}" if det.get("stairs_dir") else "")
         conf = det["confidence"]
 
         # Color based on proximity: Red = Immediate, Yellow = Near, Green = Far

@@ -52,6 +52,28 @@ class TestTracker(unittest.TestCase):
             d = tracker.update([box_det("chair", [100, 100, 200, 200])], now=i * 0.1)[0]
         self.assertAlmostEqual(d["growth_rate"], 0.0)
 
+    def test_stairs_direction_needs_agreeing_votes(self):
+        tracker = ObjectTracker()
+        box = [0, 200, 640, 480]
+        stairs = lambda vote: dict(box_det("stairs", box), stairs_vote=vote)
+        # Too few votes: unsure
+        for t in range(config.STAIRS_DIRECTION_MIN_VOTES - 1):
+            d = tracker.update([stairs(("down", 0.95))], now=t * 0.1)[0]
+            self.assertIsNone(d["stairs_dir"])
+        # A low-confidence guess is not a vote
+        d = tracker.update([stairs(("up", 0.4))], now=0.5)[0]
+        self.assertIsNone(d["stairs_dir"])
+        d = tracker.update([stairs(("down", 0.9))], now=0.6)[0]
+        self.assertEqual(d["stairs_dir"], "down")
+        # Frames without a guess keep the agreed direction
+        self.assertEqual(tracker.update([box_det("stairs", box)], now=0.7)[0]["stairs_dir"], "down")
+
+    def test_mixed_stairs_votes_stay_unsure(self):
+        tracker = ObjectTracker()
+        for t, label in enumerate(["up", "down", "up", "down"]):
+            d = tracker.update([dict(box_det("stairs", [0, 200, 640, 480]), stairs_vote=(label, 0.9))], now=t * 0.1)[0]
+        self.assertIsNone(d["stairs_dir"])
+
     def test_old_tracks_expire(self):
         tracker = ObjectTracker()
         a = tracker.update([box_det("person", [100, 100, 200, 300])], now=0.0)[0]

@@ -69,6 +69,8 @@ class InstructionGenerator:
 
         # Class severity weight
         class_weight = config.PRIORITY_CLASSES.get(cls_name.lower(), 0.5)
+        if cls_name == "stairs" and det.get("stairs_dir") == "down":
+            class_weight = config.STAIRS_DOWN_WEIGHT
 
         # Scale proximity impact heavily for large boxes
         proximity_boost = 2.0 if proximity == "immediate" else (1.0 if proximity == "near" else 0.2)
@@ -84,17 +86,20 @@ class InstructionGenerator:
         return round(hazard_score, 3)
 
     @staticmethod
-    def build_phrase(cls: str, direction: str, proximity: str, approaching: bool = False) -> Optional[str]:
+    def build_phrase(cls: str, direction: str, proximity: str, approaching: bool = False,
+                     stairs_dir: Optional[str] = None) -> Optional[str]:
         """Short imperative phrase, or None when the object is not worth announcing."""
         where = "ahead" if direction == "ahead" else f"on your {direction}"
         if proximity == "far" and direction != "ahead":
             return None  # Skip far peripheral objects to prevent cognitive clutter
 
         if cls == "stairs":
+            # Direction only when the tracker is sure; otherwise plain "stairs"
+            stairs = {"up": "stairs going up", "down": "stairs going down"}.get(stairs_dir, "stairs")
             phrase = {
-                "immediate": "Stop! stairs ahead" if direction == "ahead" else f"Caution, stairs {where}",
-                "near": "Stairs ahead, slow down" if direction == "ahead" else f"Stairs {where}",
-                "far": "Stairs in distance",
+                "immediate": f"Stop! {stairs} ahead" if direction == "ahead" else f"Caution, {stairs} {where}",
+                "near": f"{stairs} ahead, slow down" if direction == "ahead" else f"{stairs} {where}",
+                "far": f"{stairs} in distance",
             }[proximity]
         elif cls == "door":
             phrase = {
@@ -147,7 +152,9 @@ class InstructionGenerator:
             cls = candidate["class_name"]
             direction = candidate["direction"]
             proximity = candidate["proximity"]
-            cache_key = f"{cls}_{direction}"
+            stairs_dir = candidate["det"].get("stairs_dir")
+            # A newly learned stairs direction is worth saying even right after "Stairs ahead"
+            cache_key = f"{cls}_{stairs_dir}_{direction}" if stairs_dir else f"{cls}_{direction}"
 
             # Determine throttling window: critical alerts and distant objects have their own cooldown
             cooldown = {"immediate": config.CRITICAL_OVERRIDE_SECONDS,
@@ -159,7 +166,8 @@ class InstructionGenerator:
 
             last_time = self.last_announced.get(cache_key, 0)
             if (now - last_time) >= cooldown:
-                phrase = self.build_phrase(cls, direction, proximity, self.is_approaching(candidate["det"]))
+                phrase = self.build_phrase(cls, direction, proximity, self.is_approaching(candidate["det"]),
+                                           stairs_dir)
                 if phrase is None:
                     continue
 

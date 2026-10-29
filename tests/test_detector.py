@@ -27,17 +27,37 @@ class FakeResult:
         self.boxes = boxes
 
 
+class FakeProbs:
+    def __init__(self, top1, conf):
+        self.top1 = top1
+        self.top1conf = torch.tensor(conf)
+
+
+class FakeClassResult:
+    names = {0: "down", 1: "up"}
+
+    def __init__(self, crop):
+        self.crop_shape = crop.shape
+        self.probs = FakeProbs(0, 0.91)
+
+
 class FakeYOLO:
-    """Returns fixed boxes; `boxes_for` maps weights name -> list of FakeBox."""
+    """Returns fixed boxes; `boxes_for` maps weights name -> list of FakeBox.
+    Weights named in `classifiers` act as the stairs up/down classifier."""
     boxes_for = {}
+    classifiers = set()
+    crops = []
 
     def __init__(self, weights):
         self.weights = str(weights)
         self.names = {0: "person", 56: "chair"}
         self.calls = 0
 
-    def predict(self, source, conf, **kwargs):
+    def predict(self, source, conf=None, **kwargs):
         self.calls += 1
+        if self.weights in self.classifiers:
+            FakeYOLO.crops = source
+            return [FakeClassResult(crop) for crop in source]
         return [FakeResult([b for b in self.boxes_for.get(self.weights, []) if float(b.conf) >= conf])]
 
 
@@ -80,6 +100,23 @@ class TestDetector(unittest.TestCase):
         self.assertEqual(sorted(d["class_name"] for d in merged), ["person", "stairs"])
         only_coco = detector.detect(self.frame, include_structure=False)
         self.assertEqual([d["class_name"] for d in only_coco], ["person"])
+
+    def test_stairs_get_a_direction_vote(self):
+        structure = Path(__file__)
+        classifier = Path(__file__).parent / "test_tracker.py"  # Any other existing file
+        FakeYOLO.boxes_for[str(structure)] = FakeYOLO.boxes_for.pop("door_stairs.pt")
+        FakeYOLO.classifiers = {str(classifier)}
+        self.addCleanup(setattr, FakeYOLO, "classifiers", set())
+        detector = detector_module.ObstacleDetector(structure_model=structure, stairs_direction_model=classifier)
+        stairs = detector.detect_structure(self.frame)[0]
+        self.assertEqual(stairs["stairs_vote"], ("down", 0.91))
+        # Crop of [0, 240, 640, 480] grown by the pad, clipped to the 640x480 frame
+        pad = int(240 * config.STAIRS_DIRECTION_PAD)
+        self.assertEqual(FakeYOLO.crops[0].shape, (240 + pad, 640, 3))
+
+    def test_direction_classifier_needs_the_structure_model(self):
+        detector = detector_module.ObstacleDetector(structure_model=None, stairs_direction_model=Path(__file__))
+        self.assertIsNone(detector.stairs_direction)
 
     def test_empty_frame_result(self):
         FakeYOLO.boxes_for = {}

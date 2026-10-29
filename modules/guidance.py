@@ -47,6 +47,7 @@ class GuidanceSession:
                 track = self.tracker.tracks.get(d.get("track_id"))
                 d["hits"] = track["hits"] if track else 0
                 d["growth_rate"] = track["growth_rate"] if track else 0.0
+                d["stairs_dir"] = track["stairs_dir"] if track else None
 
         instruction = self.engine.generate_instruction(detections, now)
         return {
@@ -65,4 +66,5 @@ class GuidanceSession:
             "proximity": self.engine.proximity_of(det),
             "direction": self.engine.determine_direction(det["norm_cx"]),
             "approaching": self.engine.is_approaching(det),
+            "stairs_dir": det.get("stairs_dir"),
         }

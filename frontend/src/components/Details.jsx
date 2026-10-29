@@ -11,7 +11,7 @@ export function Details({ detections, stats, log, health }) {
           return (
             <div key={zone} className={`zone ${d ? d.proximity : ""}`}>
               <small>{zone}</small>
-              <b>{d ? `${d.label}${d.approaching ? " (approaching)" : ""}` : "Clear"}</b>
+              <b>{d ? `${d.label}${d.stairs_dir ? ` going ${d.stairs_dir}` : ""}${d.approaching ? " (approaching)" : ""}` : "Clear"}</b>
             </div>
           );
         })}

@@ -23,6 +23,7 @@ models/easyocr/
 datasets/
 yolo11n.pt
 yolo26n.pt
+yolo11n-cls.pt
 
 # Self-signed HTTPS certificate made by run_server.py (contains a private key)
 certs/

@@ -35,7 +35,7 @@ export function Overlay({ frame, detections, showBoxes }) {
       ctx.strokeStyle = color;
       ctx.lineWidth = d.proximity === "immediate" ? 5 : 3;
       ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
-      const label = `${d.label}${d.approaching ? " ▲" : ""} ${Math.round(d.confidence * 100)}%`;
+      const label = `${d.label}${d.stairs_dir ? ` ${d.stairs_dir}` : ""}${d.approaching ? " ▲" : ""} ${Math.round(d.confidence * 100)}%`;
       const w = ctx.measureText(label).width + 12;
       const ly = Math.max(0, y1 - font - 8);
       ctx.fillStyle = color;

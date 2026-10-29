@@ -25,13 +25,18 @@ def pick_device() -> str:
 
 class ObstacleDetector:
     def __init__(self, model_name: str = config.MODEL_NAME, conf_thresh: float = config.CONF_THRESHOLD,
-                 structure_model=config.STRUCTURE_MODEL):
+                 structure_model=config.STRUCTURE_MODEL,
+                 stairs_direction_model=config.STAIRS_DIRECTION_MODEL):
         self.conf_thresh = conf_thresh
         self.device = pick_device()
         self.model = YOLO(model_name)
         # Class names dictionary from model
         self.names = self.model.names
         self.structure = YOLO(str(structure_model)) if structure_model and structure_model.exists() else None
+        # Up/down classifier for stairs crops; only useful together with the structure model
+        self.stairs_direction = (YOLO(str(stairs_direction_model))
+                                 if self.structure is not None and stairs_direction_model
+                                 and stairs_direction_model.exists() else None)
         # One model instance is shared by all web clients; predict is not thread-safe
         self._lock = threading.Lock()
 
@@ -72,7 +77,24 @@ class ObstacleDetector:
         names = dict(enumerate(config.STRUCTURE_CLASSES))
         min_conf = min(config.STRUCTURE_CONF.values())
         found = self._run(self.structure, frame, min_conf, names)
-        return [d for d in found if d["confidence"] >= config.STRUCTURE_CONF.get(d["class_name"], min_conf)]
+        found = [d for d in found if d["confidence"] >= config.STRUCTURE_CONF.get(d["class_name"], min_conf)]
+        if self.stairs_direction is not None:
+            self._classify_stairs(frame, [d for d in found if d["class_name"] == "stairs"])
+        return found
+
+    def _classify_stairs(self, frame, stairs: List[Dict[str, Any]]):
+        """Adds `stairs_vote` = (label, confidence) to each stairs detection.
+
+        One frame's guess is only a vote; ObjectTracker turns recent votes into
+        the `stairs_dir` that gets spoken.
+        """
+        if not stairs:
+            return
+        crops = [crop_with_pad(frame, d["bbox"], config.STAIRS_DIRECTION_PAD) for d in stairs]
+        results = self.stairs_direction.predict(source=crops, imgsz=config.STAIRS_DIRECTION_IMGSZ,
+                                                device=self.device, verbose=False)
+        for det, res in zip(stairs, results):
+            det["stairs_vote"] = (res.names[int(res.probs.top1)], round(float(res.probs.top1conf), 2))
 
     def _run(self, model, frame, conf: float, names: Dict[int, str]) -> List[Dict[str, Any]]:
         results = model.predict(
@@ -103,6 +125,14 @@ class ObstacleDetector:
             detections.append(make_detection(cls_name, cls_id, conf_val, xyxy, w, h, total_frame_area))
 
         return detections
+
+
+def crop_with_pad(frame, bbox: List[int], pad: float):
+    """Crop of `bbox` grown by `pad` (fraction of box size) per side, clipped to the frame."""
+    h, w = frame.shape[:2]
+    x1, y1, x2, y2 = bbox
+    px, py = int((x2 - x1) * pad), int((y2 - y1) * pad)
+    return frame[max(0, y1 - py):min(h, y2 + py), max(0, x1 - px):min(w, x2 + px)]
 
 
 def make_detection(cls_name: str, cls_id: int, conf: float, xyxy, w: int, h: int,
