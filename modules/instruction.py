@@ -13,6 +13,9 @@ class InstructionGenerator:
         self.last_any_announced = 0.0
         # Keep track of last high-priority directive for HUD display
         self.last_active_directive = "Path clear"
+        # "Path clear" is said once after a warning about something ahead
+        self.awaiting_clear = False
+        self.last_ahead_hazard = 0.0
 
     def determine_direction(self, norm_cx: float) -> str:
         """Determines spatial sector from normalized horizontal center."""
@@ -23,8 +26,19 @@ class InstructionGenerator:
         else:
             return "ahead"
 
-    def determine_proximity(self, area_ratio: float) -> str:
-        """Estimates proximity level based on relative bounding box scale."""
+    def determine_proximity(self, area_ratio: float, class_name: str = "",
+                            norm_bottom: Optional[float] = None) -> str:
+        """Estimates proximity level based on relative bounding box scale.
+
+        Floor-level classes (stairs) use how low the box reaches instead, because a
+        staircase fills a large area even when it is still far away.
+        """
+        if class_name in config.FLOOR_CLASSES and norm_bottom is not None:
+            if norm_bottom >= config.FLOOR_IMMEDIATE_BOTTOM:
+                return "immediate"
+            if norm_bottom >= config.FLOOR_NEAR_BOTTOM:
+                return "near"
+            return "far"
         if area_ratio >= config.IMMEDIATE_PROXIMITY_THRESHOLD:
             return "immediate"
         elif area_ratio >= config.NEAR_PROXIMITY_THRESHOLD:
@@ -32,11 +46,19 @@ class InstructionGenerator:
         else:
             return "far"
 
+    def proximity_of(self, det: Dict[str, Any]) -> str:
+        return self.determine_proximity(det["area_ratio"], det["class_name"], det.get("norm_bottom"))
+
+    @staticmethod
+    def is_approaching(det: Dict[str, Any]) -> bool:
+        return det.get("growth_rate", 0.0) >= config.APPROACH_RATE
+
     def compute_hazard_score(self, det: Dict[str, Any], direction: str, proximity: str) -> float:
         """Computes Hazard Risk Index (HRI).
-        
+
         Formula:
-          HRI = (area_ratio * 10) + alignment_penalty + class_weight
+          HRI = area_ratio * 10 * proximity_boost + alignment * 0.8 + class_weight * 0.5
+                + approach * 0.3, where approach = min(growth_rate / APPROACH_RATE, 2) when growing
         """
         area_ratio = det.get("area_ratio", 0.0)
         norm_cx = det.get("norm_cx", 0.5)
@@ -50,26 +72,64 @@ class InstructionGenerator:
 
         # Scale proximity impact heavily for large boxes
         proximity_boost = 2.0 if proximity == "immediate" else (1.0 if proximity == "near" else 0.2)
+        if cls_name in config.FLOOR_CLASSES:
+            # Area is not a distance cue for floor hazards; rank them by proximity level
+            area_ratio = {"immediate": 0.3, "near": 0.12, "far": 0.03}[proximity]
 
-        hazard_score = (area_ratio * 10.0 * proximity_boost) + (alignment_score * 0.8) + (class_weight * 0.5)
+        # Objects moving towards the user rank higher
+        approach = min(max(det.get("growth_rate", 0.0), 0.0) / config.APPROACH_RATE, 2.0)
+
+        hazard_score = (area_ratio * 10.0 * proximity_boost) + (alignment_score * 0.8) \
+            + (class_weight * 0.5) + (approach * 0.3)
         return round(hazard_score, 3)
 
-    def generate_instruction(self, detections: List[Dict[str, Any]]) -> Optional[str]:
+    @staticmethod
+    def build_phrase(cls: str, direction: str, proximity: str, approaching: bool = False) -> Optional[str]:
+        """Short imperative phrase, or None when the object is not worth announcing."""
+        where = "ahead" if direction == "ahead" else f"on your {direction}"
+        if proximity == "far" and direction != "ahead":
+            return None  # Skip far peripheral objects to prevent cognitive clutter
+
+        if cls == "stairs":
+            phrase = {
+                "immediate": "Stop! stairs ahead" if direction == "ahead" else f"Caution, stairs {where}",
+                "near": "Stairs ahead, slow down" if direction == "ahead" else f"Stairs {where}",
+                "far": "Stairs in distance",
+            }[proximity]
+        elif cls == "door":
+            phrase = {
+                "immediate": f"Door just {where}" if direction == "ahead" else f"Door {where}",
+                "near": f"Door {where}",
+                "far": "Door in distance",
+            }[proximity]
+        elif proximity == "immediate":
+            phrase = f"Stop! {cls} ahead" if direction == "ahead" else f"Caution, {cls} {where}"
+        elif approaching:
+            phrase = f"{cls} approaching" + ("" if direction == "ahead" else f" from your {direction}")
+        elif proximity == "near":
+            phrase = f"{cls} {where}"
+        else:
+            phrase = f"{cls} in distance"
+        return phrase[0].upper() + phrase[1:]
+
+    def generate_instruction(self, detections: List[Dict[str, Any]], now: Optional[float] = None) -> Optional[str]:
         """Evaluates all detections in the frame and returns the highest priority
         action directive, applying chatter-suppression throttling.
-        """
-        now = time.time()
 
-        if not detections:
-            # If path was blocked previously and has been clear for a while
-            return None
+        Detections that went through ObjectTracker carry `hits`; ones seen in fewer
+        than CONFIRM_HITS frames are ignored as possible flicker.
+        """
+        now = time.time() if now is None else now
+        confirmed = [d for d in detections if d.get("hits", config.CONFIRM_HITS) >= config.CONFIRM_HITS]
 
         # 1. Annotate each detection with direction, proximity and hazard score
         scored_hazards = []
-        for det in detections:
+        for det in confirmed:
             direction = self.determine_direction(det["norm_cx"])
-            proximity = self.determine_proximity(det["area_ratio"])
+            proximity = self.proximity_of(det)
             score = self.compute_hazard_score(det, direction, proximity)
+            if direction == "ahead" and proximity != "far" and det["class_name"] != "door":
+                self.last_ahead_hazard = now
 
             scored_hazards.append({
                 "det": det,
@@ -89,8 +149,9 @@ class InstructionGenerator:
             proximity = candidate["proximity"]
             cache_key = f"{cls}_{direction}"
 
-            # Determine throttling window: critical "immediate" alerts have a shorter cooldown
-            cooldown = config.CRITICAL_OVERRIDE_SECONDS if proximity == "immediate" else config.AUDIO_THROTTLE_SECONDS
+            # Determine throttling window: critical alerts and distant objects have their own cooldown
+            cooldown = {"immediate": config.CRITICAL_OVERRIDE_SECONDS,
+                        "far": config.FAR_THROTTLE_SECONDS}.get(proximity, config.AUDIO_THROTTLE_SECONDS)
 
             # Global gap: avoid back-to-back phrases about different objects
             if proximity != "immediate" and (now - self.last_any_announced) < config.MIN_GAP_SECONDS:
@@ -98,28 +159,25 @@ class InstructionGenerator:
 
             last_time = self.last_announced.get(cache_key, 0)
             if (now - last_time) >= cooldown:
-                # Build concise imperative instruction
-                if proximity == "immediate":
-                    if direction == "ahead":
-                        phrase = f"Stop! {cls} ahead"
-                    else:
-                        phrase = f"Caution, {cls} on {direction}"
-                elif proximity == "near":
-                    if direction == "ahead":
-                        phrase = f"{cls} ahead"
-                    else:
-                        phrase = f"{cls} on {direction}"
-                else:
-                    # 'far' object: only mention if in direct walking path
-                    if direction == "ahead":
-                        phrase = f"{cls} in distance"
-                    else:
-                        continue  # Skip far peripheral objects to prevent cognitive clutter
+                phrase = self.build_phrase(cls, direction, proximity, self.is_approaching(candidate["det"]))
+                if phrase is None:
+                    continue
 
                 # Update timestamp and active state
                 self.last_announced[cache_key] = now
                 self.last_any_announced = now
                 self.last_active_directive = phrase
+                if direction == "ahead" and proximity != "far" and cls != "door":
+                    self.awaiting_clear = True
                 return phrase
+
+        # 4. Reassure the user once the way ahead has been clear for a while
+        if (self.awaiting_clear
+                and now - self.last_ahead_hazard >= config.PATH_CLEAR_AFTER_SECONDS
+                and now - self.last_any_announced >= config.MIN_GAP_SECONDS):
+            self.awaiting_clear = False
+            self.last_any_announced = now
+            self.last_active_directive = "Path clear"
+            return "Path clear"
 
         return None

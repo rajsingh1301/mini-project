@@ -1,68 +1,49 @@
-# Real-Time Actionable Guidance for the Visually Impaired
+# Guide Eye: Real-Time Actionable Guidance for the Visually Impaired
 
-An edge-AI assistive prototype that converts live video stream into concise, prioritized spoken action instructions for blind and low-vision individuals.
+An offline assistive prototype. A phone (or laptop) camera feeds a small
+detection pipeline on a laptop, and the user hears short, prioritized
+instructions such as *"Stop! stairs ahead"*, *"Door on your left"* or
+*"Person approaching from your right"*. In **Read mode** the user points the
+phone at a board or sign and hears what it says and what it means:
+*"Exit sign. It says: EXIT. It shows the way out."*
 
----
-
-## 🚀 Key Features
-1. **Real-Time Obstacle Detection:** Uses YOLOv8 Nano for fast, local identification of COCO classes such as people, vehicles, chairs, tables, bottles, backpacks, and suitcases.
-2. **Horizontal Sector Zoning:** Divides camera field-of-view into `Left`, `Path (Ahead)`, and `Right` to give precise spatial context.
-3. **Hazard Risk Index (HRI):** Mathematically ranks obstacles using:
-   - Proximity via bounding box area scale ($\text{area}_{box} / \text{area}_{frame}$)
-   - Collision trajectory alignment ($1 - 2 \cdot |x_{norm} - 0.5|$)
-   - Class severity weighting
-4. **Action-Oriented Spoken Guidance:** Speaks immediate verbs (e.g. *"Stop! Person ahead"*, *"Chair on left"*), avoiding wordy passive descriptions.
-5. **Zero-Lag Asynchronous TTS:** Non-blocking threaded audio queue with chatter suppression (prevents repetitive loop speaking).
-6. **Live Visual HUD:** Visualizes real-time FPS, latency in milliseconds, bounding box proximity color codes (Green = Safe, Amber = Near, Red = Immediate Hazard).
+No cloud APIs: all models run locally.
 
 ---
 
-## 📁 Project Structure
+## Features
 
-```text
-mini_project/
-│
-├── config.py                 # System thresholds, camera size, HRI weights, TTS rate
-├── main.py                   # Desktop real-time pipeline (Camera -> YOLO -> HRI -> Speech)
-├── server.py                 # FastAPI backend for the web app
-├── web/index.html            # Browser UI (camera, boxes, banner, speech)
-├── requirements.txt          # Python dependencies
-│
-├── modules/
-│   ├── camera.py             # Frame capture & FPS calculation
-│   ├── detector.py           # YOLOv8 nano detection wrapper
-│   ├── instruction.py        # Direction & Hazard Risk Index prioritization logic
-│   ├── ocr_reader.py         # On-demand text reading (EasyOCR)
-│   └── tts_engine.py         # Non-blocking threaded speech synthesizer
-│
-├── paper/
-│   └── research_paper_draft.md # Academic research paper formatted in IEEE/ACM style
-│
-└── tests/
-    ├── test_instruction.py   # Unit test for spatial sectors & priority rules
-    ├── test_benchmark.py     # Latency & FPS benchmark for paper evaluation
-    ├── test_camera.py        # Standalone webcam test
-    └── test_tts.py           # Standalone audio speech test
-```
+**Walk mode (obstacle guidance)**
+1. **Obstacles:** YOLOv8 nano (COCO): people, vehicles, bicycles, chairs, tables, benches and more.
+2. **Doors and stairs:** a YOLO11 nano model fine-tuned on Open Images V7 door/stairs labels (`models/door_stairs.pt`). Test-set accuracy is listed below.
+3. **Left / ahead / right zones** and **proximity** (immediate, near, far). For stairs, proximity comes from how low the staircase reaches in the frame, because a staircase looks large even far away.
+4. **Tracking:** an object must be seen in 2 frames before it is announced (fewer false alarms), and a box that grows quickly is announced as *approaching* (d(area)/dt).
+5. **Hazard Risk Index (HRI)** ranks everything in view, and only the most important thing is spoken. Stairs carry the highest class weight.
+6. **No chatter:** repeat cooldowns, a global gap between phrases, and a one-time *"Path clear"* after a warning.
+
+**Read mode (signs and boards)**
+1. EasyOCR reads in natural order (lines top to bottom, words left to right). A contrast-enhanced second pass rescues faded or engraved text.
+2. **Aiming help** for blind users: *"Text may be cut off. Move the phone right."*, *"The text is small. Move closer."*, *"The picture is blurry. Hold the phone steady."*, *"It is too dark."*
+3. **Sign meaning:** exit, no entry, warning, push/pull, restroom, lift, stairs, platform, bus stop, entrance, open/closed, arrows, and **traffic light color** (*"Traffic light is red. Wait."*).
+4. Reads continuously and only speaks again when the board changes.
+
+**Phone app (React)**
+- One big **Start** button, then two big buttons: **Read sign** and **Stop**. Plus Repeat and Mute.
+- Everything important is spoken. Vibration on Stop and stairs warnings (Android). The screen stays on while walking. Phone light toggle in Read mode (Android).
+- High-contrast yellow/black design with large text. Keyboard shortcuts for the laptop demo.
 
 ---
 
-## 🛠️ Presentation quick start
+## Quick start
 
-### 1. Set up the environment (first time only)
+### 1. Set up (first time only)
 
 **macOS / Linux**
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-```
-
-**Windows (CMD)**
-```bat
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
+cd frontend && npm install && npm run build && cd ..
 ```
 
 **Windows (PowerShell)**
@@ -70,68 +51,94 @@ pip install -r requirements.txt
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+cd frontend; npm install; npm run build; cd ..
 ```
 If PowerShell blocks the script, run `Set-ExecutionPolicy -Scope Process Bypass` first.
-On later runs, only the activate line is needed. Use `python3` instead of `python`
-on macOS/Linux if `python` is not found.
+Node.js 18+ is needed only to build the frontend.
 
-### 2. Run the Prototype
+### 2a. Use it from a phone (recommended demo)
+```bash
+python run_server.py
+```
+Connect the phone to the **same Wi-Fi** as the laptop and open the `https://<laptop-ip>:8000`
+address it prints. Phones only allow the camera on HTTPS pages, so the script makes a
+self-signed certificate. The first time, the browser warns about it: choose
+**Advanced → Proceed** (Chrome) or **Show details → visit this website** (Safari).
+Tap **Start**, allow the camera, and hold the phone at chest height, camera facing forward.
+
+### 2b. Use it in the laptop browser
+```bash
+python run_server.py --http
+```
+Open http://localhost:8000.
+
+### 2c. Desktop OpenCV app (no browser)
 ```bash
 python main.py
 ```
-*(Press **'q'** in the video window to stop)*
+`r` reads the sign in view, `q` quits.
 
-Before presenting, allow camera access when macOS or Windows asks (on Windows: Settings > Privacy > Camera). Keep a chair or a
-person in the centre of the camera view for a repeatable demo. A small object
-near either edge demonstrates the left/right cue; a large centre object should
-produce the red **Stop** cue.
+---
 
-## Current scope and next upgrade
+## Door/stairs model
 
-The included `yolov8n.pt` model was trained on COCO. COCO has no `door` or
-`stairs` class, so this version must be presented as a **general obstacle
-guidance prototype**, not as validated stair or door detection. The action
-pipeline, direction logic, priority ranking, HUD, and offline speech are fully
-implemented. The next milestone is to plug in a custom model trained with
-door/stair labels, then add OCR on sampled frames.
-
-## Reading a sign or label
-
-Point the camera at clear, well-lit English text and press **`r`** in the video
-window. The system pauses only for that OCR request, shows `Text: ...` in the
-HUD, and reads the result aloud. This on-demand design avoids slowing the live
-obstacle loop. The first OCR request may take longer while EasyOCR loads its
-recognition model.
-
-EasyOCR stores its downloaded model files locally in `models/easyocr/` inside
-this project, so the text-reading demo also works after the initial download.
-
-### 2b. Run the Web App (frontend + backend)
+The model in `models/door_stairs.pt` was built with:
 ```bash
-uvicorn server:app --port 8000
+python training/prepare_dataset.py   # downloads ~6,000 Open Images photos with door/stairs boxes
+python training/train.py             # fine-tunes YOLO11n, installs the model, prints test metrics
 ```
-Open http://localhost:8000, press **Start**, allow the camera. The browser sends
-frames to the FastAPI backend over a WebSocket (`/ws`), draws the returned boxes,
-shows the action banner and speaks instructions with the browser's speech
-synthesis. **Read text** calls `POST /api/ocr`. Camera access needs `localhost`
-or HTTPS.
+Training uses the Apple GPU (MPS) or a CUDA GPU when available.
 
-### 3. Run Benchmark (To get numbers for your Research Paper)
+Held-out test split (665 Open Images photos):
+
+| Class  | Precision | Recall | mAP50 | mAP50-95 |
+|--------|-----------|--------|-------|----------|
+| TEST_METRICS_PLACEHOLDER |
+
+Open Images photos are general web pictures, not walking footage, so treat these numbers
+as a starting point and check the model on your own corridors and staircases.
+
+---
+
+## Tests and benchmark
 ```bash
-python tests/test_benchmark.py
+python -m unittest discover -s tests -p "test_[a-z]*.py" -k Test   # Python unit tests
+cd frontend && npm test                                            # frontend logic tests
+python tests/test_benchmark.py                                     # latency/FPS for the paper
 ```
+The tests replace YOLO and EasyOCR with fakes, so they run in under a second.
+`tests/test_camera.py` and `tests/test_tts.py` are manual hardware checks.
 
-### 4. Run Unit Tests
-```bash
-python -m unittest tests/test_instruction.py
+---
+
+## Project structure
+
+```text
+mini_project/
+├── config.py                 # All thresholds, weights, model paths, OCR settings
+├── main.py                   # Desktop app (OpenCV window + pyttsx3)
+├── server.py                 # FastAPI backend: /ws walk stream, /api/read, serves frontend/dist
+├── run_server.py             # Starts the server with HTTPS for phones
+├── modules/
+│   ├── camera.py             # Webcam capture & FPS
+│   ├── detector.py           # COCO + door/stairs YOLO models
+│   ├── tracker.py            # Frame-to-frame matching, flicker filter, approach rate
+│   ├── instruction.py        # Zones, proximity, HRI, phrases, throttling
+│   ├── guidance.py           # Detector -> tracker -> instructions, one session per user
+│   ├── ocr_reader.py         # Text reading, line order, aiming hints
+│   ├── sign_interpreter.py   # Sign meaning rules, traffic light color
+│   └── tts_engine.py         # Non-blocking speech queue (desktop)
+├── frontend/                 # React + Vite phone app
+├── training/                 # Dataset builder and training script
+├── models/door_stairs.pt     # Trained door/stairs model
+├── tests/                    # Unit tests, benchmark, hardware checks
+└── paper/                    # Research paper draft
 ```
 
 ---
 
-## 📄 Research Paper
-The academic paper draft is saved in [paper/research_paper_draft.md](paper/research_paper_draft.md). It contains:
-- Abstract & Introduction
-- Related Work Matrix (comparing Be My AI, Seeing AI, Envision, DeepNAVI, DrishT)
-- Methodology & Mathematical formulation of the Hazard Risk Index
-- System Architecture diagram (Mermaid)
-- Experimental Evaluation metrics (FPS, Latency, Usability)
+## Limitations
+- Distance is estimated from box size and position, not measured. There is no depth sensor.
+- Stairs going up and stairs going down are not told apart.
+- Spoken phrases are English. Hindi boards can be read by setting `OCR_LANGUAGES = ["en", "hi"]` in `config.py` (larger model, not yet tested).
+- This is a research prototype. It has not been validated with blind users and must not replace a cane or guide dog.

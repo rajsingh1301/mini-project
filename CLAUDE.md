@@ -1,82 +1,83 @@
 # CLAUDE.md
 
 ## Project Idea & Goal
-"Real-Time Actionable Guidance for the Visually Impaired" (college mini project).
-Turn a live camera feed into short spoken instructions ("Stop! person ahead", "chair on left"), not long scene descriptions. Target: obstacles, stairs, doors and text in one pipeline.
-Constraints: low latency, runs on a laptop/Colab, no expensive hardware, offline (no cloud APIs).
+"Real-Time Actionable Guidance for the Visually Impaired" (college mini project, app name "Guide Eye").
+Turn a live camera feed into short spoken instructions ("Stop! stairs ahead", "Chair on your left"), not long scene descriptions, and read/explain signs and boards on request. Target: obstacles, stairs, doors and text in one pipeline.
+Constraints: low latency, runs on a laptop (phone is the camera + speaker via the web app), no expensive hardware, offline (no cloud APIs).
 
 ## Architecture / Pipeline
-Camera -> Detector (YOLOv8n) -> Instruction Generator (direction + proximity + HRI + throttling) -> TTS (threaded queue). Plus on-demand OCR (press `r`).
-Two front ends share the same modules: the desktop OpenCV app (`main.py`) and a web app (`server.py` + `web/index.html`). In the web app the browser owns camera and speech; the backend only does detection, instructions and OCR.
+Camera -> `ObstacleDetector` (COCO YOLOv8n + custom door/stairs YOLO11n) -> `ObjectTracker` (IoU matching, hits, d(area)/dt) -> `InstructionGenerator` (direction + proximity + HRI + throttling) -> speech.
+Read path: high-res photo -> `TextReader.read_scene` (EasyOCR, line ordering, CLAHE retry, aiming hints) -> `SignInterpreter.explain` (sign rules, traffic light color) -> speech.
+`GuidanceSession` (modules/guidance.py) wires detector -> tracker -> instructions; one per desktop app or per WebSocket client. The detector is shared (thread lock inside).
 
-Data flow in [main.py](main.py), per loop iteration:
-1. `VideoStream.read()` returns a 640x480 BGR frame (falls back to a synthetic "no camera" frame; detection is skipped then).
-2. `ObstacleDetector.detect(frame)` returns dicts: class_name, confidence, bbox, norm_cx, area_ratio.
-3. `InstructionGenerator.generate_instruction(dets)`:
-   - direction from `norm_cx` (left <0.35, ahead, right >0.65)
-   - proximity from bbox `area_ratio` (immediate >=0.20, near >=0.08, else far). This is a proxy, not real depth.
-   - Hazard Risk Index = `area*10*proximity_boost + alignment*0.8 + class_weight*0.5`
-   - picks the top non-throttled hazard (cooldown 2.0s, or 0.8s for "immediate") and returns a phrase, or None
-4. `TTSEngine.speak(text, priority)` puts it on a queue (maxsize 3). A worker thread uses pyttsx3, with `say` as the macOS fallback. A "stop" phrase clears the backlog.
-5. `draw_hud` renders boxes (red/amber/green by proximity), sector lines, the action banner, FPS and ms in an OpenCV window.
-6. Key `r`: `TextReader.read(frame)` (EasyOCR, lazy-loaded, CPU) runs synchronously and the text is spoken. Key `q` quits.
+Two front ends share the modules:
+- Desktop OpenCV app `main.py` (pyttsx3 TTS queue, HUD, key `r` = read sign, `q` = quit).
+- Web app: `server.py` (FastAPI) + `frontend/` (React + Vite). Browser owns camera, speech (speechSynthesis), vibration and wake lock. Walk mode streams 640px JPEGs over `/ws` (one in flight at a time); Read mode posts full-res photos to `/api/read` in a loop, waiting for speech to finish between reads.
+
+Key rules in `InstructionGenerator`:
+- direction from `norm_cx` (left <0.35, ahead, right >0.65)
+- proximity from bbox `area_ratio` (immediate >=0.20, near >=0.08); for `FLOOR_CLASSES` (stairs) from `norm_bottom` instead. Proxy, not real depth.
+- HRI = `area*10*proximity_boost + alignment*0.8 + class_weight*0.5 + approach*0.3`
+- detections with `hits < CONFIRM_HITS` are ignored (flicker filter); `growth_rate >= APPROACH_RATE` -> "approaching"
+- throttling: same class+direction 4.0s (`AUDIO_THROTTLE_SECONDS`/`CRITICAL_OVERRIDE_SECONDS`), far 8.0s, 2.0s global gap for non-immediate; "Path clear" once after an ahead warning
+- a phrase starting with "Stop" is an emergency (interrupts speech, vibrates)
 
 ## Tech Stack
-Python, FastAPI + uvicorn (WebSocket), vanilla JS frontend, OpenCV (`opencv-python`), Ultralytics YOLOv8n (`yolov8n.pt`, COCO weights), pyttsx3, EasyOCR, numpy. Dependencies are in [requirements.txt](requirements.txt). Tests use `unittest`.
+Python 3.13, Ultralytics (YOLOv8n COCO + YOLO11n fine-tuned), EasyOCR, OpenCV, FastAPI + uvicorn, pyttsx3, numpy, cryptography (self-signed cert). Frontend: React 18 + Vite 5, plain JS, no UI library. Tests: `unittest` (Python), `node --test` (frontend pure helpers).
 
 ## Folder Structure
-- `config.py`: all thresholds, class weights, camera, TTS and OCR settings
+- `config.py`: all thresholds, class weights, model paths, tracker, TTS and OCR settings
 - `main.py`: desktop entry point, main loop and HUD
-- `server.py`: FastAPI backend (`/ws` frame stream, `POST /api/ocr`, `/api/health`, serves `web/`)
-- `web/index.html`: single-file browser UI (camera, canvas boxes, banner, speechSynthesis, log)
-- `modules/`: `camera.py`, `detector.py`, `instruction.py`, `ocr_reader.py`, `tts_engine.py`
-- `tests/`: `test_instruction.py`, `test_benchmark.py`, `test_camera.py`, `test_tts.py`
+- `server.py`: FastAPI (`/ws`, `POST /api/read`, `POST /api/ocr` legacy, `/api/health`, serves `frontend/dist`)
+- `run_server.py`: starts the server; HTTPS with an auto-made self-signed cert so phones get camera access (`--http` for localhost only)
+- `modules/`: `camera.py`, `detector.py`, `tracker.py`, `instruction.py`, `guidance.py`, `ocr_reader.py`, `sign_interpreter.py`, `tts_engine.py`
+- `frontend/src/`: `App.jsx`, `hooks/` (camera, speech, settings, wake lock, guidance stream, sign reader), `components/`, `lib/guidance.js` (+ `.test.js`)
+- `training/`: `prepare_dataset.py` (Open Images door/stairs -> YOLO format), `train.py` (fine-tune, install to `models/door_stairs.pt`, test metrics)
+- `models/door_stairs.pt`: trained door/stairs weights (tracked). `models/easyocr/` is a git-ignored cache.
+- `tests/`: unit tests `test_instruction`, `test_tracker`, `test_detector`, `test_ocr`, `test_tts_engine`, `test_server`; scripts `test_benchmark.py`, `test_camera.py`, `test_tts.py`
 - `paper/research_paper_draft.md`: IEEE-style paper draft
-- `models/easyocr/`: local OCR model cache (git-ignored)
+- Git-ignored: `datasets/`, `runs/`, `certs/`, `frontend/node_modules`, `frontend/dist`
 
 ## How to Run
 ```bash
 source .venv/bin/activate
 pip install -r requirements.txt
-python main.py                              # desktop demo; q = quit, r = read text
-uvicorn server:app --port 8000              # web app at http://localhost:8000
-python tests/test_benchmark.py              # latency/FPS numbers for the paper
-python -m unittest tests/test_instruction.py
-python tests/test_camera.py                 # standalone camera check
-python tests/test_tts.py                    # standalone audio check
+(cd frontend && npm install && npm run build)   # once, and after frontend changes
+python run_server.py                             # phone: https://<laptop-ip>:8000 (accept cert warning)
+python run_server.py --http                      # laptop browser: http://localhost:8000
+python main.py                                   # desktop demo; q = quit, r = read sign
+python -m unittest discover -s tests -p "test_[a-z]*.py" -k Test   # all Python unit tests
+(cd frontend && npm test)                        # frontend helper tests
+python tests/test_benchmark.py                   # latency/FPS numbers for the paper
+python training/prepare_dataset.py && python training/train.py      # rebuild door/stairs model
 ```
-macOS asks for camera permission on first run.
+Frontend dev with hot reload: `uvicorn server:app --port 8000` + `cd frontend && npm run dev` (Vite proxies `/api` and `/ws`).
 
 ## Coding Rules / Conventions (as seen in code)
 - Every tunable value lives in `config.py`; modules do `import config`. Do not hardcode thresholds.
 - One class per module, each with a module docstring. Type hints on newer code. Short imperative comments.
-- Detections are plain dicts with the keys listed above.
-- The TTS queue is deliberately tiny. Never block the vision loop on audio, and drop stale messages.
+- Detections are plain dicts: class_name, class_id, confidence, bbox, center_x/y, norm_cx, norm_bottom, area_ratio; the tracker adds track_id, hits, growth_rate.
+- Never block the vision loop on audio; drop stale speech instead of queueing (desktop queue maxsize 3; browser drops non-urgent speech while speaking).
 - Instructions are short and imperative. Far objects off to the side are not announced.
-- Do not claim door/stairs detection: COCO weights have no such classes (the README says this too).
-- Tests add the repo root to `sys.path` and are run as scripts.
+- Door/stairs come only from the trained model; report its measured test metrics, not more.
+- Python tests add the repo root to `sys.path`, fake YOLO/EasyOCR, and also run as scripts.
+- Frontend: hooks own side effects; pure logic goes in `lib/` with node tests. Big touch targets, high contrast, everything important is spoken.
 
 ## Current Status
 **Done**
-- Web app: FastAPI backend and browser UI (tested with a real image over WebSocket and OCR; browser camera path not yet tested by me)
-- Camera capture with FPS, YOLOv8n detection, left/ahead/right zoning
-- Proximity levels, HRI ranking, speech throttling
-- Non-blocking TTS, HUD
-- On-demand OCR with the `r` key
-- Benchmark script and paper draft
-
-**In progress**
-- OCR (`modules/ocr_reader.py`) is untracked in git. Several files also have uncommitted edits (README, config, main, tts_engine, requirements, .gitignore).
-- Paper draft: it makes claims that are not yet verified (see Unknown).
+- Door/stairs detection: YOLO11n fine-tuned on Open Images V7 (5959 train / 234 val / 665 test images)
+- Tracker with flicker filter and approach detection (d(area)/dt); floor-based proximity for stairs; "Path clear"
+- Sign reading: line ordering, CLAHE retry, aiming hints (cut off / too small / blurry / dark), sign meaning rules, traffic light color
+- React frontend (Walk + Read modes, repeat, mute, vibration, wake lock, torch, settings), HTTPS runner for phones
+- Browser camera path verified end to end with headless Chrome and a fake camera clip (walk and read modes)
+- Unit tests for instruction, tracker, detector, OCR, sign interpreter, TTS queue, server/WebSocket
 
 **Todo / missing**
-- Door and stairs detection (needs custom-trained weights or a dataset). Phrases like "step down" and "door on your left" are not produced anywhere in the code.
-- Continuous OCR (currently on demand only)
-- Real distance estimation (only a bbox-area proxy). The paper mentions the area derivative d(area)/dt, but the code does not use it.
-- Tests for OCR, detector and TTS logic. Only `test_instruction.py` is a real unit test.
-- Colab setup or notebook
+- Real-world validation with blind users and on a real phone walk (only tested with clips and photos)
+- Stairs up vs down is not distinguished; distance is still a bbox proxy (no depth model)
+- Hindi OCR/speech: possible via `OCR_LANGUAGES = ["en", "hi"]` but untested; instruction phrases are English only
+- Colab notebook
 
 **Unknown (ask the user)**
-- Whether the paper's numbers (<150 ms latency, >25 FPS) are measured. Unconfirmed; check against `test_benchmark.py` output.
-- Target platform for the final demo (Mac laptop vs Colab) and whether the stairs/door dataset or model exists.
-- Final deliverables and deadline.
+- Target platform for the final demo (phone + Mac laptop vs Colab)
+- Final deliverables and deadline

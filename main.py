@@ -9,12 +9,13 @@ import numpy as np
 import config
 from modules.camera import VideoStream
 from modules.detector import ObstacleDetector
-from modules.instruction import InstructionGenerator
+from modules.guidance import GuidanceSession
 from modules.ocr_reader import TextReader
+from modules.sign_interpreter import SignInterpreter
 from modules.tts_engine import TTSEngine
 
 
-def draw_hud(frame, detections, active_instruction, fps, latency_ms):
+def draw_hud(frame, detections, active_instruction, fps, latency_ms, proximity_of):
     """Renders visual Head-Up Display (HUD) with sector lines, bounding boxes,
     and latency metrics for demonstration and debugging.
     """
@@ -35,15 +36,15 @@ def draw_hud(frame, detections, active_instruction, fps, latency_ms):
     # 2. Draw Detections
     for det in detections:
         x1, y1, x2, y2 = det["bbox"]
-        area_ratio = det["area_ratio"]
         cls_name = det["class_name"]
         conf = det["confidence"]
 
         # Color based on proximity: Red = Immediate, Yellow = Near, Green = Far
-        if area_ratio >= config.IMMEDIATE_PROXIMITY_THRESHOLD:
+        proximity = proximity_of(det)
+        if proximity == "immediate":
             color = (0, 0, 255)      # Red (Critical)
             thickness = 3
-        elif area_ratio >= config.NEAR_PROXIMITY_THRESHOLD:
+        elif proximity == "near":
             color = (0, 215, 255)    # Amber/Yellow
             thickness = 2
         else:
@@ -102,8 +103,11 @@ def main():
     # 2. Initialize Models & Engines
     print("Loading YOLOv8 model...")
     detector = ObstacleDetector()
-    instruction_engine = InstructionGenerator()
+    if not detector.has_structure:
+        print("[Info] Door/stairs model not found. Train it with: python training/train.py")
+    session = GuidanceSession(detector)
     text_reader = TextReader()
+    signs = SignInterpreter()
     tts = TTSEngine()
 
     print("System active! Press 'r' to read a sign, 'q' to exit.")
@@ -128,18 +132,17 @@ def main():
 
             frame_counter += 1
 
-            # Step 2: Obstacle Detection
-            t_det_start = time.time()
+            # Step 2 + 3: Detection, tracking and instruction decision
             # The fallback image is only a visible status screen; do not imply
             # that the model can detect its synthetic circle as a real object.
-            detections = detector.detect(frame) if cam_available else []
-
-            # Step 3: Instruction & Prioritization Decision
-            spoken_instruction = instruction_engine.generate_instruction(detections)
+            if cam_available:
+                result = session.step(frame)
+                detections, spoken_instruction = result["detections"], result["instruction"]
+            else:
+                detections, spoken_instruction = [], None
             if spoken_instruction:
                 current_active_directive = spoken_instruction
-                is_emergency = "stop" in spoken_instruction.lower()
-                tts.speak(spoken_instruction, priority=is_emergency)
+                tts.speak(spoken_instruction, priority=result["emergency"])
             elif not detections:
                 current_active_directive = "Path clear" if cam_available else "Camera unavailable"
 
@@ -153,7 +156,8 @@ def main():
                 detections,
                 current_active_directive,
                 current_fps,
-                total_latency
+                total_latency,
+                session.engine.proximity_of
             )
 
             cv2.imshow("Actionable Guidance System (Prototype)", frame_annotated)
@@ -164,15 +168,11 @@ def main():
             if key == ord('r'):
                 print("[OCR] Reading current frame...")
                 try:
-                    text = text_reader.read(frame)
-                    if text:
-                        current_active_directive = f"Text: {text}"
-                        print(f"[OCR] {text}")
-                        tts.speak(f"Text says: {text}", priority=True)
-                    else:
-                        current_active_directive = "No readable text"
-                        print("[OCR] No readable text found.")
-                        tts.speak("No readable text found")
+                    reading = signs.explain(text_reader.read_scene(frame),
+                                            detector.detect(frame, include_structure=False), frame)
+                    current_active_directive = f"Text: {reading['text']}" if reading["text"] else "No readable text"
+                    print(f"[OCR] {reading['summary']}")
+                    tts.speak(reading["summary"], priority=True)
                 except RuntimeError as error:
                     current_active_directive = "OCR unavailable"
                     print(f"[OCR] {error}")

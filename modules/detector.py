@@ -1,21 +1,47 @@
-"""Object and obstacle detector using YOLOv8.
+"""Object and obstacle detector using YOLO.
+
+Runs the COCO model for general obstacles and, when its weights exist, a
+second custom model for doors and stairs. Both return the same detection dicts.
 """
 
-from typing import List, Dict, Any
+import threading
+from typing import List, Dict, Any, Optional
+
 from ultralytics import YOLO
 import config
 
 
+def pick_device() -> str:
+    """CUDA GPU, then Apple GPU, then CPU, unless config.DEVICE forces one."""
+    if config.DEVICE:
+        return config.DEVICE
+    import torch
+    if torch.cuda.is_available():
+        return "0"
+    if torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+
+
 class ObstacleDetector:
-    def __init__(self, model_name: str = config.MODEL_NAME, conf_thresh: float = config.CONF_THRESHOLD):
+    def __init__(self, model_name: str = config.MODEL_NAME, conf_thresh: float = config.CONF_THRESHOLD,
+                 structure_model=config.STRUCTURE_MODEL):
         self.conf_thresh = conf_thresh
+        self.device = pick_device()
         self.model = YOLO(model_name)
         # Class names dictionary from model
         self.names = self.model.names
+        self.structure = YOLO(str(structure_model)) if structure_model and structure_model.exists() else None
+        # One model instance is shared by all web clients; predict is not thread-safe
+        self._lock = threading.Lock()
 
-    def detect(self, frame) -> List[Dict[str, Any]]:
+    @property
+    def has_structure(self) -> bool:
+        return self.structure is not None
+
+    def detect(self, frame, include_structure: bool = True) -> List[Dict[str, Any]]:
         """Runs inference on a single frame and extracts detection metadata.
-        
+
         Returns a list of structured detections:
             {
                 'class_name': str,
@@ -25,13 +51,35 @@ class ObstacleDetector:
                 'center_x': float,
                 'center_y': float,
                 'area_ratio': float, # Bounding box area / total frame area
-                'norm_cx': float     # Normalized center x [0.0 - 1.0]
+                'norm_cx': float,    # Normalized center x [0.0 - 1.0]
+                'norm_bottom': float # Normalized bottom edge y [0.0 - 1.0]
             }
         """
-        results = self.model.predict(
+        with self._lock:
+            detections = self._run(self.model, frame, self.conf_thresh, self.names)
+            if include_structure and self.structure is not None:
+                detections += self.detect_structure_unlocked(frame)
+        return detections
+
+    def detect_structure(self, frame) -> List[Dict[str, Any]]:
+        """Doors and stairs only; empty if the custom model is not installed."""
+        if self.structure is None:
+            return []
+        with self._lock:
+            return self.detect_structure_unlocked(frame)
+
+    def detect_structure_unlocked(self, frame) -> List[Dict[str, Any]]:
+        names = dict(enumerate(config.STRUCTURE_CLASSES))
+        min_conf = min(config.STRUCTURE_CONF.values())
+        found = self._run(self.structure, frame, min_conf, names)
+        return [d for d in found if d["confidence"] >= config.STRUCTURE_CONF.get(d["class_name"], min_conf)]
+
+    def _run(self, model, frame, conf: float, names: Dict[int, str]) -> List[Dict[str, Any]]:
+        results = model.predict(
             source=frame,
-            conf=self.conf_thresh,
+            conf=conf,
             iou=config.IOU_THRESHOLD,
+            device=self.device,
             verbose=False
         )
 
@@ -49,29 +97,31 @@ class ObstacleDetector:
 
         for box in boxes:
             xyxy = box.xyxy[0].cpu().numpy()
-            conf = float(box.conf[0].cpu().numpy())
+            conf_val = float(box.conf[0].cpu().numpy())
             cls_id = int(box.cls[0].cpu().numpy())
-            cls_name = self.names.get(cls_id, f"obj_{cls_id}")
-
-            x1, y1, x2, y2 = xyxy
-            bw = max(0.0, x2 - x1)
-            bh = max(0.0, y2 - y1)
-            box_area = bw * bh
-            area_ratio = box_area / total_frame_area
-
-            cx = (x1 + x2) / 2.0
-            cy = (y1 + y2) / 2.0
-            norm_cx = cx / float(w)
-
-            detections.append({
-                "class_name": cls_name,
-                "class_id": cls_id,
-                "confidence": round(conf, 2),
-                "bbox": [int(x1), int(y1), int(x2), int(y2)],
-                "center_x": cx,
-                "center_y": cy,
-                "norm_cx": norm_cx,
-                "area_ratio": area_ratio
-            })
+            cls_name = names.get(cls_id, f"obj_{cls_id}")
+            detections.append(make_detection(cls_name, cls_id, conf_val, xyxy, w, h, total_frame_area))
 
         return detections
+
+
+def make_detection(cls_name: str, cls_id: int, conf: float, xyxy, w: int, h: int,
+                   total_frame_area: Optional[float] = None) -> Dict[str, Any]:
+    """Builds the detection dict shared by the whole pipeline."""
+    x1, y1, x2, y2 = (float(v) for v in xyxy)
+    bw = max(0.0, x2 - x1)
+    bh = max(0.0, y2 - y1)
+    area_ratio = (bw * bh) / (total_frame_area or float(w * h))
+    cx = (x1 + x2) / 2.0
+    cy = (y1 + y2) / 2.0
+    return {
+        "class_name": cls_name,
+        "class_id": cls_id,
+        "confidence": round(conf, 2),
+        "bbox": [int(x1), int(y1), int(x2), int(y2)],
+        "center_x": cx,
+        "center_y": cy,
+        "norm_cx": cx / float(w),
+        "norm_bottom": y2 / float(h),
+        "area_ratio": area_ratio
+    }

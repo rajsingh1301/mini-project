@@ -18,3 +18,15 @@ runs/
 # Temp download parts
 *.part
 models/easyocr/
+
+# Door/stairs training data and base weights downloaded by training/train.py
+datasets/
+yolo11n.pt
+yolo26n.pt
+
+# Self-signed HTTPS certificate made by run_server.py (contains a private key)
+certs/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
