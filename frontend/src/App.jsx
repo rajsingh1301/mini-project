@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Banner } from "./components/Banner.jsx";
 import { Details } from "./components/Details.jsx";
+import { Icon } from "./components/Icon.jsx";
 import { Overlay } from "./components/Overlay.jsx";
 import { SettingsSheet } from "./components/SettingsSheet.jsx";
 import { useCamera } from "./hooks/useCamera.js";
 import { useGuidanceStream } from "./hooks/useGuidanceStream.js";
+import { usePageLanguage } from "./hooks/usePageLanguage.js";
 import { useSettings } from "./hooks/useSettings.js";
 import { useSignReader } from "./hooks/useSignReader.js";
 import { useSpeech } from "./hooks/useSpeech.js";
@@ -12,7 +14,7 @@ import { useWakeLock } from "./hooks/useWakeLock.js";
 import { arrowFor, kindFor, sameText, vibrationFor } from "./lib/guidance.js";
 import { languageInfo, nextLanguage, t } from "./lib/i18n.js";
 
-const idleBanner = (tr) => ({ kind: "clear", arrow: "👁", text: tr("tapStart"), sub: tr("holdPhone") });
+const idleBanner = (tr) => ({ kind: "info", arrow: "↑", text: tr("tapStart"), sub: tr("holdPhone") });
 const STATUS_KEY = { idle: "statusOff", connecting: "statusConnecting", live: "statusLive", lost: "statusLost",
                      reconnecting: "statusReconnecting" };
 const HINT_REPEAT_MS = 6000;
@@ -23,6 +25,7 @@ export default function App() {
   const camera = useCamera();
   // Everything spoken or shown uses the language the device can actually speak
   const lang = speech.lang;
+  usePageLanguage(lang);
   const tr = useCallback((key, vars) => t(lang, key, vars), [lang]);
 
   const [phase, setPhase] = useState("idle"); // idle | starting | walk | read
@@ -238,32 +241,39 @@ export default function App() {
   }, [settingsOpen, running, start, stop, toggleRead, toggleMute, speech]);
 
   return (
-    <div className={`app phase-${phase}`}>
+    <div className={`app phase-${phase}${settings.showDetails ? " has-details" : ""}`}>
       <header className="top">
         <div className="brand">
-          <span className="logo" aria-hidden="true">👁</span>
-          <h1>{tr("appName")}</h1>
+          <span className="logo"><Icon name="eye" /></span>
+          <div><h1>{tr("appName")}</h1><p className="brand-sub">{tr("appTagline")}</p></div>
         </div>
-        <span className={`status ${status}`} role="status">
-          {phase === "read" ? tr("statusReading") : tr(STATUS_KEY[status])}
-        </span>
         <button type="button" className="lang-btn" lang={nextLanguage(settings.language)}
                 onClick={() => changeLanguage(nextLanguage(settings.language))}
                 aria-label={tr("switchLanguage", { language: languageInfo(nextLanguage(settings.language)).name })}>
           {languageInfo(nextLanguage(settings.language)).native}
         </button>
-        <button type="button" className="icon-btn" onClick={() => setSettingsOpen(true)} aria-label={tr("settings")}>⚙</button>
+        <button type="button" className="icon-btn" onClick={() => setSettingsOpen(true)}
+                aria-label={tr("settings")} aria-haspopup="dialog"><Icon name="settings" /></button>
       </header>
 
-      <div className="main">
+      <main className="main">
         <div className="view">
+          <div className="session-heading">
+            <h2><Icon name={phase === "read" ? "scan" : "walk"} />{phase === "read" ? tr("readMode") : tr("walkMode")}</h2>
+            <span className={`status ${phase === "starting" ? "connecting" : status}`} role="status">
+              <span className="status-dot" aria-hidden="true" />
+              {phase === "read" ? tr("statusReading") : phase === "starting" ? tr("starting") : tr(STATUS_KEY[status])}
+            </span>
+          </div>
           <div className={`stage ${banner.kind === "stop" ? "alert" : ""}`}>
             <video ref={camera.videoRef} playsInline muted aria-hidden="true" />
-            {phase === "walk" && <Overlay frame={frame} detections={detections} showBoxes={settings.showBoxes} />}
+            {phase === "walk" && <Overlay frame={frame} detections={detections} showBoxes={settings.showBoxes} tr={tr} />}
+            <span className="camera-label"><Icon name="camera" />{tr("cameraPreview")}</span>
+            {phase === "read" && <div className="scan-guide" aria-hidden="true"><i /><i /><i /><i /></div>}
             {phase === "idle" && (
               <button type="button" className="start-cover" onClick={start} aria-label={tr("startGuidance")}>
-                <span className="start-icon" aria-hidden="true">▶</span>
-                <span className="start-label">{tr("start")}</span>
+                <span className="start-icon"><Icon name="eye" /></span>
+                <span className="start-label">{tr("readyWhenYouAre")}</span>
                 <span className="start-sub">{tr("tapAnywhere")}</span>
               </button>
             )}
@@ -272,35 +282,40 @@ export default function App() {
         </div>
 
         {settings.showDetails && (
-          <Details detections={detections} stats={stats} log={log} health={health} />
+          <Details detections={detections} stats={stats} log={log} health={health} tr={tr} />
         )}
-      </div>
+      </main>
 
-      <nav className="controls" aria-label="Controls">
+      <nav className="controls" aria-label={tr("controls")}>
         {phase === "idle" || phase === "starting" ? (
           <button type="button" className="btn primary huge" onClick={start} disabled={phase === "starting"}>
+            <Icon name="play" />
             {phase === "starting" ? tr("starting") : tr("startGuidance")}
           </button>
         ) : (
           <>
             <div className="row big">
               <button type="button" className="btn read" onClick={toggleRead}>
+                <Icon name={phase === "read" ? "walk" : "scan"} />
                 {phase === "read" ? tr("backToWalking") : tr("readSign")}
               </button>
-              <button type="button" className="btn danger" onClick={stop}>{tr("stop")}</button>
+              <button type="button" className="btn danger" onClick={stop}><Icon name="stop" />{tr("stop")}</button>
             </div>
-            <div className="row">
-              {phase === "read" && <button type="button" className="btn" onClick={readAgain}>{tr("readAgain")}</button>}
-              <button type="button" className="btn" onClick={speech.repeat}>{tr("repeat")}</button>
+            <div className="row secondary">
+              {phase === "read" && <button type="button" className="btn" onClick={readAgain}><Icon name="scan" />{tr("readAgain")}</button>}
+              <button type="button" className="btn" onClick={speech.repeat}><Icon name="repeat" />{tr("repeat")}</button>
               {phase === "read" && camera.torchSupported && (
-                <button type="button" className="btn" aria-pressed={torchOn} onClick={toggleTorch}>{tr("light")}</button>
+                <button type="button" className="btn" aria-pressed={torchOn} onClick={toggleTorch}><Icon name="light" />{tr("light")}</button>
               )}
-              <button type="button" className="btn" aria-pressed={settings.muted} onClick={toggleMute}>
-                {settings.muted ? tr("unmute") : tr("mute")}
-              </button>
             </div>
           </>
         )}
+        <button type="button" className={`controls-note${settings.muted ? " is-muted" : ""}`}
+                onClick={toggleMute} aria-pressed={settings.muted} disabled={!speech.supported}>
+          <Icon name={settings.muted ? "muted" : "volume"} />
+          <span>{!speech.supported ? tr("voiceUnavailable") : settings.muted ? tr("voiceMuted") : tr("voiceReady")}</span>
+          {speech.supported && <b>{settings.muted ? tr("unmute") : tr("mute")}</b>}
+        </button>
       </nav>
 
       <SettingsSheet
