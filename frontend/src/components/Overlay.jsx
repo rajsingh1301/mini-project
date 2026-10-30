@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react";
 const COLORS = { immediate: "#ff3b3b", near: "#ffb000", far: "#33d17a" };
 
 /** Draws zone lines and detection boxes in the coordinates of the sent frame. */
-export function Overlay({ frame, detections, showBoxes }) {
+export function Overlay({ frame, detections, showBoxes, tr }) {
   const ref = useRef(null);
 
   useEffect(() => {
@@ -35,7 +35,7 @@ export function Overlay({ frame, detections, showBoxes }) {
       ctx.strokeStyle = color;
       ctx.lineWidth = d.proximity === "immediate" ? 5 : 3;
       ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
-      const label = `${d.label}${d.stairs_dir ? ` ${d.stairs_dir}` : ""}${d.approaching ? " ▲" : ""} ${Math.round(d.confidence * 100)}%`;
+      const label = `${d.label}${d.stairs_dir ? ` ${tr(d.stairs_dir === "up" ? "stairsUp" : "stairsDown")}` : ""}${d.approaching ? " ▲" : ""} ${Math.round(d.confidence * 100)}%`;
       const w = ctx.measureText(label).width + 12;
       const ly = Math.max(0, y1 - font - 8);
       ctx.fillStyle = color;
@@ -43,7 +43,7 @@ export function Overlay({ frame, detections, showBoxes }) {
       ctx.fillStyle = "#000";
       ctx.fillText(label, x1 + 6, ly + font + 1);
     }
-  }, [frame, detections, showBoxes]);
+  }, [frame, detections, showBoxes, tr]);
 
   return <canvas ref={ref} className="overlay" aria-hidden="true" />;
 }
