@@ -95,7 +95,7 @@ The new model is installed only if it scores higher than the installed one on th
 Training at 640 px takes about 10 GB of memory and many hours on a 16 GB laptop. To keep the
 laptop free, open [`training/colab_train.ipynb`](training/colab_train.ipynb) in
 [Google Colab](https://colab.research.google.com) (File > Open notebook > GitHub), pick a T4 GPU and
-run all cells. Progress is saved to Google Drive, so a disconnected session continues where it
+run all cells. By default it fine-tunes the current model for 15 epochs (about 1-1.5 hours on a T4). Progress is saved to Google Drive, so a disconnected session continues where it
 stopped (`python training/train.py --resume`). The last cell downloads the new model; put it in `models/`.
 
 Held-out test split (665 Open Images photos):
