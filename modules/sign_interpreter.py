@@ -60,7 +60,15 @@ HINDI_PATTERNS = {
     "open": r"^\s*खुला(\s*है)?\s*$",
     "closed": r"^\s*बंद(\s*है)?\s*$",
 }
-HINDI_PATTERNS = {k: unicodedata.normalize("NFC", v) for k, v in HINDI_PATTERNS.items()}
+
+
+def hindi_form(text: str) -> str:
+    """NFC text without the vowel sign ि. OCR often puts it on the wrong consonant
+    ("नकिास" for "निकास"), so both the board text and the patterns are compared without it."""
+    return unicodedata.normalize("NFC", text).replace("\u093f", "")
+
+
+HINDI_PATTERNS = {k: hindi_form(v) for k, v in HINDI_PATTERNS.items()}
 
 ARROWS = {"→": "right", "->": "right", "←": "left", "<-": "left", "↑": "straight ahead", "↓": "down"}
 
@@ -69,7 +77,7 @@ class SignInterpreter:
     def classify(self, text: str) -> Optional[Dict[str, str]]:
         """Returns the first matching sign rule, or None for ordinary text."""
         upper = text.upper()
-        hindi = unicodedata.normalize("NFC", text)
+        hindi = hindi_form(text)
         for kind, label, meaning, pattern in SIGN_RULES:
             if re.search(pattern, upper) or (kind in HINDI_PATTERNS and re.search(HINDI_PATTERNS[kind], hindi)):
                 return {"kind": kind, "label": label, "meaning": meaning}

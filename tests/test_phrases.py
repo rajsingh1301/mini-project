@@ -130,6 +130,12 @@ class TestSigns(unittest.TestCase):
         self.assertEqual(self.signs.classify("सी\u095dी")["kind"], "stairs")
         self.assertEqual(self.signs.classify("सी\u0922\u093cी")["kind"], "stairs")
 
+    def test_misplaced_vowel_sign_still_matches(self):
+        # Real EasyOCR output for the sign निकास
+        self.assertEqual(self.signs.classify("नकिास")["kind"], "exit")
+        self.assertEqual(self.signs.classify("फसिलन")["kind"], "warning")
+        self.assertIsNone(self.signs.classify("कमरा"))
+
     def test_hindi_explanation(self):
         out = self.signs.explain({"text": "EXIT", "lines": [], "hints": []}, lang="hi")
         self.assertEqual(out["summary"], "निकास का संकेत। इस पर लिखा है: EXIT। यह बाहर जाने का रास्ता दिखाता है।")
