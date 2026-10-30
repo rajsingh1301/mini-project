@@ -1,16 +1,17 @@
 import { useEffect, useRef } from "react";
 
-function socketUrl() {
+function socketUrl(lang) {
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  return `${proto}://${location.host}/ws`;
+  return `${proto}://${location.host}/ws?lang=${encodeURIComponent(lang)}`;
 }
 
 /**
  * Walk mode: sends one small JPEG, waits for the reply, then sends the next.
  * Frames never queue up, so instructions always describe the current view.
- * Reconnects by itself if the connection drops.
+ * Reconnects by itself if the connection drops, and when the spoken language changes
+ * (the server words each instruction in the language it was connected with).
  */
-export function useGuidanceStream({ active, capture, onResult, onStatus }) {
+export function useGuidanceStream({ active, capture, lang, onResult, onStatus }) {
   const handlers = useRef({ onResult, onStatus });
   handlers.current = { onResult, onStatus };
 
@@ -40,7 +41,7 @@ export function useGuidanceStream({ active, capture, onResult, onStatus }) {
 
     const connect = () => {
       handlers.current.onStatus(retries ? "reconnecting" : "connecting");
-      ws = new WebSocket(socketUrl());
+      ws = new WebSocket(socketUrl(lang));
       ws.onopen = () => {
         retries = 0;
         busy = false;
@@ -70,5 +71,5 @@ export function useGuidanceStream({ active, capture, onResult, onStatus }) {
         ws.close();
       }
     };
-  }, [active, capture]);
+  }, [active, capture, lang]);
 }

@@ -16,9 +16,11 @@ except ImportError:
 
 
 class TTSEngine:
-    def __init__(self, rate: int = config.TTS_RATE, volume: float = config.TTS_VOLUME):
+    def __init__(self, rate: int = config.TTS_RATE, volume: float = config.TTS_VOLUME,
+                 lang: str = config.LANGUAGE):
         self.rate = rate
         self.volume = volume
+        self.lang = lang
         self.msg_queue = queue.Queue(maxsize=3) # Keep queue tiny to prevent audio lag backlog
         self.running = True
         self.worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
@@ -32,6 +34,12 @@ class TTSEngine:
                 engine = pyttsx3.init()
                 engine.setProperty("rate", self.rate)
                 engine.setProperty("volume", self.volume)
+                voice = self.pick_voice(engine.getProperty("voices"), self.lang)
+                if voice:
+                    engine.setProperty("voice", voice)
+                elif self.lang != "en":
+                    print(f"[TTS Warning] No '{self.lang}' voice installed; install one in the system "
+                          f"speech settings. Using the default voice.")
             except Exception as e:
                 print(f"[TTS Warning] pyttsx3 init error: {e}. Falling back to native system voice.")
                 engine = None
@@ -49,7 +57,9 @@ class TTSEngine:
                     engine.runAndWait()
                 elif platform.system() == "Darwin":
                     # Instant native macOS speech fallback
-                    subprocess.run(["say", "-r", str(self.rate), text], check=False)
+                    voice = config.SAY_VOICES.get(self.lang)
+                    subprocess.run(["say", *(["-v", voice] if voice else []), "-r", str(self.rate), text],
+                                   check=False)
                 else:
                     # Linux/Windows console fallback
                     print(f"[AUDIO OUT]: {text}")
@@ -58,6 +68,17 @@ class TTSEngine:
             finally:
                 self.is_speaking = False
                 self.msg_queue.task_done()
+
+    @staticmethod
+    def pick_voice(voices, lang: str):
+        """Id of the first installed voice whose id, name or language matches the hints for `lang`."""
+        hints = config.TTS_VOICE_HINTS.get(lang, [])
+        for voice in voices or []:
+            haystack = " ".join([str(getattr(voice, "id", "")), str(getattr(voice, "name", "")),
+                                 *map(str, getattr(voice, "languages", []) or [])]).lower()
+            if any(h in haystack for h in hints):
+                return voice.id
+        return None
 
     def speak(self, text: str, priority: bool = False):
         """Dispatches an instruction to the speech queue.

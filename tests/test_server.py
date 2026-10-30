@@ -42,10 +42,11 @@ class FakeDetector:
 
 
 class FakeReader:
-    def warm_up(self):
+    def warm_up(self, lang="en"):
         pass
 
-    def read_scene(self, frame):
+    def read_scene(self, frame, lang="en"):
+        self.lang = lang
         return {"text": "EXIT", "lines": ["EXIT"], "confidence": 0.9, "quality": {}, "hints": []}
 
 
@@ -114,6 +115,30 @@ class TestServer(unittest.TestCase):
         body = self.client.post("/api/read", files={"image": ("f.jpg", jpeg(1920, 1080), "image/jpeg")}).json()
         self.assertEqual(body["kind"], "exit")
         self.assertTrue(body["summary"].startswith("Exit sign. It says: EXIT."))
+
+    def test_read_in_hindi(self):
+        files = {"image": ("f.jpg", jpeg(1920, 1080), "image/jpeg")}
+        body = self.client.post("/api/read", files=files, data={"lang": "hi"}).json()
+        self.assertEqual(body["kind"], "exit")
+        self.assertTrue(body["summary"].startswith("निकास का संकेत।"), body["summary"])
+        # An unknown language falls back to English
+        body = self.client.post("/api/read", files=files, data={"lang": "xx"}).json()
+        self.assertTrue(body["summary"].startswith("Exit sign."))
+
+    def test_websocket_language_and_metadata(self):
+        with self.client.websocket_connect("/ws?lang=hi") as ws:
+            replies = []
+            for _ in range(3):
+                ws.send_bytes(jpeg())
+                replies.append(ws.receive_json())
+        spoken = next(r for r in replies if r["instruction"])
+        self.assertEqual(spoken["instruction"], "रुकिए! सामने व्यक्ति")
+        # Arrow, banner style and vibration come from fields, not from the words
+        self.assertEqual((spoken["emergency"], spoken["alert"], spoken["direction"], spoken["clear"]),
+                         (True, "stop", "ahead", False))
+
+    def test_health_lists_languages(self):
+        self.assertEqual(self.client.get("/api/health").json()["languages"], ["en", "hi"])
 
     def test_ocr_alias(self):
         body = self.client.post("/api/ocr", files={"image": ("f.jpg", jpeg(), "image/jpeg")}).json()

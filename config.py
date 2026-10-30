@@ -90,6 +90,11 @@ APPROACH_SMOOTHING = 0.5     # EMA factor for the growth rate (0..1, higher reac
 # TTS Audio Settings
 TTS_RATE = 190               # Words per minute (180-200 is clear and fast)
 TTS_VOLUME = 1.0             # 0.0 to 1.0
+# Desktop app language and the voices it prefers (substring of a pyttsx3 voice id, name or
+# language code; macOS `say` voice names for the fallback). The web app uses browser voices.
+LANGUAGE = "en"              # "en" or "hi"; `python main.py --lang hi` overrides it
+TTS_VOICE_HINTS = {"hi": ["hi_in", "hi-in", "lekha"]}
+SAY_VOICES = {"hi": "Lekha"}
 AUDIO_THROTTLE_SECONDS = 4.0 # Minimum seconds between repeating same class in same sector
 CRITICAL_OVERRIDE_SECONDS = 4.0 # Shorter interval for emergency "STOP" warnings
 FAR_THROTTLE_SECONDS = 8.0   # Distant objects ahead are repeated less often
@@ -99,7 +104,10 @@ PATH_CLEAR_AFTER_SECONDS = 3.0  # Say "Path clear" once the way ahead stays empt
 # OCR Settings
 # OCR is not part of the walking loop: it runs on request (`r` key, Read button)
 # or in the web app's Read mode, which reads a high-resolution frame every few seconds.
-OCR_LANGUAGES = ["en"]       # Add "hi" for Hindi boards (larger model, slower)
+OCR_LANGUAGES = ["en"]       # Reader used for English; other app languages below
+# EasyOCR languages to load when the app speaks that language. English stays fast; Hindi also
+# reads Devanagari boards (needs one extra model download the first time, then works offline).
+OCR_LANGUAGES_BY_APP_LANGUAGE = {"hi": ["hi", "en"]}
 OCR_MIN_CONFIDENCE = 0.35
 OCR_MAX_CHARACTERS = 300
 OCR_MAX_SIDE = 1600          # Downscale larger photos to this before OCR

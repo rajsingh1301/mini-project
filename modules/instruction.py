@@ -4,15 +4,19 @@
 import time
 from typing import List, Dict, Any, Optional
 import config
+from modules import phrases
 
 
 class InstructionGenerator:
-    def __init__(self):
+    def __init__(self, lang: str = phrases.DEFAULT_LANGUAGE):
+        self.lang = phrases.normalize(lang)
+        # Direction, alert level and "clear" flag of the last returned phrase (None if none)
+        self.last_meta: Optional[Dict[str, Any]] = None
         # Cache to throttle speech: key -> last_announced_timestamp
         self.last_announced = {}
         self.last_any_announced = 0.0
         # Keep track of last high-priority directive for HUD display
-        self.last_active_directive = "Path clear"
+        self.last_active_directive = phrases.path_clear(self.lang)
         # "Path clear" is said once after a warning about something ahead
         self.awaiting_clear = False
         self.last_ahead_hazard = 0.0
@@ -87,35 +91,22 @@ class InstructionGenerator:
 
     @staticmethod
     def build_phrase(cls: str, direction: str, proximity: str, approaching: bool = False,
-                     stairs_dir: Optional[str] = None) -> Optional[str]:
+                     stairs_dir: Optional[str] = None, lang: str = phrases.DEFAULT_LANGUAGE) -> Optional[str]:
         """Short imperative phrase, or None when the object is not worth announcing."""
-        where = "ahead" if direction == "ahead" else f"on your {direction}"
-        if proximity == "far" and direction != "ahead":
-            return None  # Skip far peripheral objects to prevent cognitive clutter
+        return phrases.instruction(lang, cls, direction, proximity, approaching, stairs_dir)
 
-        if cls == "stairs":
-            # Direction only when the tracker is sure; otherwise plain "stairs"
-            stairs = {"up": "stairs going up", "down": "stairs going down"}.get(stairs_dir, "stairs")
-            phrase = {
-                "immediate": f"Stop! {stairs} ahead" if direction == "ahead" else f"Caution, {stairs} {where}",
-                "near": f"{stairs} ahead, slow down" if direction == "ahead" else f"{stairs} {where}",
-                "far": f"{stairs} in distance",
-            }[proximity]
-        elif cls == "door":
-            phrase = {
-                "immediate": f"Door just {where}" if direction == "ahead" else f"Door {where}",
-                "near": f"Door {where}",
-                "far": "Door in distance",
-            }[proximity]
-        elif proximity == "immediate":
-            phrase = f"Stop! {cls} ahead" if direction == "ahead" else f"Caution, {cls} {where}"
-        elif approaching:
-            phrase = f"{cls} approaching" + ("" if direction == "ahead" else f" from your {direction}")
-        elif proximity == "near":
-            phrase = f"{cls} {where}"
-        else:
-            phrase = f"{cls} in distance"
-        return phrase[0].upper() + phrase[1:]
+    @staticmethod
+    def alert_level(cls: str, direction: str, proximity: str) -> Optional[str]:
+        """Language-independent urgency: "stop" (emergency), "caution" or None.
+
+        Stop = something immediate straight ahead (doors never count). Caution =
+        an immediate hazard to the side, or any stairs.
+        """
+        if cls != "door" and proximity == "immediate" and direction == "ahead":
+            return "stop"
+        if cls == "stairs" or (cls != "door" and proximity == "immediate"):
+            return "caution"
+        return None
 
     def generate_instruction(self, detections: List[Dict[str, Any]], now: Optional[float] = None) -> Optional[str]:
         """Evaluates all detections in the frame and returns the highest priority
@@ -125,6 +116,7 @@ class InstructionGenerator:
         than CONFIRM_HITS frames are ignored as possible flicker.
         """
         now = time.time() if now is None else now
+        self.last_meta = None
         confirmed = [d for d in detections if d.get("hits", config.CONFIRM_HITS) >= config.CONFIRM_HITS]
 
         # 1. Annotate each detection with direction, proximity and hazard score
@@ -167,7 +159,7 @@ class InstructionGenerator:
             last_time = self.last_announced.get(cache_key, 0)
             if (now - last_time) >= cooldown:
                 phrase = self.build_phrase(cls, direction, proximity, self.is_approaching(candidate["det"]),
-                                           stairs_dir)
+                                           stairs_dir, self.lang)
                 if phrase is None:
                     continue
 
@@ -175,6 +167,8 @@ class InstructionGenerator:
                 self.last_announced[cache_key] = now
                 self.last_any_announced = now
                 self.last_active_directive = phrase
+                self.last_meta = {"direction": direction, "alert": self.alert_level(cls, direction, proximity),
+                                  "clear": False}
                 if direction == "ahead" and proximity != "far" and cls != "door":
                     self.awaiting_clear = True
                 return phrase
@@ -185,7 +179,8 @@ class InstructionGenerator:
                 and now - self.last_any_announced >= config.MIN_GAP_SECONDS):
             self.awaiting_clear = False
             self.last_any_announced = now
-            self.last_active_directive = "Path clear"
-            return "Path clear"
+            self.last_active_directive = phrases.path_clear(self.lang)
+            self.last_meta = {"direction": None, "alert": None, "clear": True}
+            return self.last_active_directive
 
         return None

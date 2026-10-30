@@ -11,12 +11,13 @@ from contextlib import asynccontextmanager
 
 import cv2
 import numpy as np
-from fastapi import FastAPI, File, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, Form, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 import config
 from modules.detector import ObstacleDetector
+from modules import phrases
 from modules.guidance import GuidanceSession
 from modules.ocr_reader import TextReader
 from modules.sign_interpreter import SignInterpreter
@@ -60,13 +61,16 @@ def process(frame, session: GuidanceSession) -> dict:
         "detections": [session.describe(d) for d in result["detections"]],
         "instruction": result["instruction"],
         "emergency": result["emergency"],
+        "direction": result["direction"],
+        "alert": result["alert"],
+        "clear": result["clear"],
         "latency_ms": result["latency_ms"],
     }
 
 
-def read_sign(frame) -> dict:
+def read_sign(frame, lang: str = phrases.DEFAULT_LANGUAGE) -> dict:
     """OCR on the full-resolution photo plus shape-based signs from the detector."""
-    ocr = state["ocr"].read_scene(frame)
+    ocr = state["ocr"].read_scene(frame, lang)
     h, w = frame.shape[:2]
     scale = config.FRAME_WIDTH / max(h, w)
     small = cv2.resize(frame, (int(w * scale), int(h * scale))) if scale < 1 else frame
@@ -74,7 +78,7 @@ def read_sign(frame) -> dict:
     for d in detections:
         # Back to full-resolution coordinates for the traffic light color check
         d["bbox"] = [int(v / min(scale, 1.0)) for v in d["bbox"]]
-    return state["signs"].explain(ocr, detections, frame)
+    return state["signs"].explain(ocr, detections, frame, lang)
 
 
 @app.get("/api/health")
@@ -85,15 +89,18 @@ def health():
         "model": config.MODEL_NAME,
         "structure_model": detector.has_structure,
         "device": detector.device,
+        "languages": list(phrases.LANGUAGES),
     }
 
 
 @app.websocket("/ws")
-async def ws_guidance(ws: WebSocket):
+async def ws_guidance(ws: WebSocket, lang: str = phrases.DEFAULT_LANGUAGE):
     """Client sends one JPEG per message and waits for the JSON reply before
-    sending the next, so frames never queue up (lowest latency)."""
+    sending the next, so frames never queue up (lowest latency).
+    `?lang=hi` picks the language of the spoken phrases."""
     await ws.accept()
-    session = GuidanceSession(state["detector"])  # per-connection tracking and throttle state
+    # Per-connection tracking and throttle state
+    session = GuidanceSession(state["detector"], phrases.normalize(lang))
     try:
         while True:
             data = await ws.receive_bytes()
@@ -108,12 +115,12 @@ async def ws_guidance(ws: WebSocket):
 
 
 @app.post("/api/read")
-async def read(image: UploadFile = File(...)):
+async def read(image: UploadFile = File(...), lang: str = Form(phrases.DEFAULT_LANGUAGE)):
     frame = decode(await image.read())
     if frame is None:
         return {"summary": "", "text": "", "error": "bad image"}
     try:
-        return await asyncio.to_thread(read_sign, frame)
+        return await asyncio.to_thread(read_sign, frame, phrases.normalize(lang))
     except RuntimeError as error:
         return {"summary": "", "text": "", "error": str(error)}
 
@@ -121,7 +128,7 @@ async def read(image: UploadFile = File(...)):
 @app.post("/api/ocr")
 async def ocr(image: UploadFile = File(...)):
     """Plain text only; kept for older clients. New clients use /api/read."""
-    result = await read(image)
+    result = await read(image, phrases.DEFAULT_LANGUAGE)
     return {"text": result.get("text", ""), **({"error": result["error"]} if "error" in result else {})}
 
 

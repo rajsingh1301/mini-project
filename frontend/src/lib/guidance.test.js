@@ -9,20 +9,21 @@ test("sameText ignores case, punctuation and small OCR differences", () => {
   assert.ok(!sameText("", "EXIT"));
 });
 
-test("arrowFor follows the direction word", () => {
-  assert.equal(arrowFor("Chair on your left"), "←");
-  assert.equal(arrowFor("Caution, stairs on your right"), "→");
-  assert.equal(arrowFor("Stop! person ahead"), "↑");
-  assert.equal(arrowFor("Path clear"), "✓");
+test("arrowFor follows the direction the server sends, in any language", () => {
+  assert.equal(arrowFor("left"), "←");
+  assert.equal(arrowFor("right"), "→");
+  assert.equal(arrowFor("ahead"), "↑");
+  assert.equal(arrowFor(null), "↑");
+  assert.equal(arrowFor(null, true), "✓");
 });
 
-test("kindFor and vibrationFor treat stop and stairs as urgent", () => {
-  assert.equal(kindFor("Stop! stairs ahead", true), "stop");
-  assert.equal(kindFor("Path clear", false), "clear");
-  assert.equal(kindFor("Door on your left", false), "info");
-  assert.deepEqual(vibrationFor("Stop! person ahead", true), [300, 100, 300]);
-  assert.ok(vibrationFor("Stairs ahead, slow down", false));
-  assert.equal(vibrationFor("Chair on your left", false), null);
+test("kindFor and vibrationFor follow the alert level, not the words", () => {
+  assert.equal(kindFor(true), "stop");
+  assert.equal(kindFor(false, true), "clear");
+  assert.equal(kindFor(false), "info");
+  assert.deepEqual(vibrationFor("stop"), [300, 100, 300]);
+  assert.ok(vibrationFor("caution"));
+  assert.equal(vibrationFor(null), null);
 });
 
 test("zoneSummary keeps the closest object in each zone", () => {

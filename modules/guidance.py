@@ -9,15 +9,17 @@ from typing import Any, Dict, List, Optional
 
 import config
 from modules.detector import ObstacleDetector
+from modules import phrases
 from modules.instruction import InstructionGenerator
 from modules.tracker import ObjectTracker
 
 
 class GuidanceSession:
-    def __init__(self, detector: ObstacleDetector):
+    def __init__(self, detector: ObstacleDetector, lang: str = phrases.DEFAULT_LANGUAGE):
         self.detector = detector
+        self.lang = phrases.normalize(lang)
         self.tracker = ObjectTracker()
-        self.engine = InstructionGenerator()
+        self.engine = InstructionGenerator(self.lang)
         self.frame_index = 0
         self.structure_cache: List[Dict[str, Any]] = []
 
@@ -50,10 +52,15 @@ class GuidanceSession:
                 d["stairs_dir"] = track["stairs_dir"] if track else None
 
         instruction = self.engine.generate_instruction(detections, now)
+        meta = self.engine.last_meta or {}
         return {
             "detections": detections,
             "instruction": instruction,
-            "emergency": bool(instruction and instruction.lower().startswith("stop")),
+            "emergency": meta.get("alert") == "stop",
+            # Language-independent facts about the phrase, for arrow, banner style and vibration
+            "direction": meta.get("direction"),
+            "alert": meta.get("alert"),
+            "clear": bool(meta.get("clear")),
             "latency_ms": round((time.time() - t0) * 1000, 1),
         }
 

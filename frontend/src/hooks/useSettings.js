@@ -1,9 +1,11 @@
 import { useCallback, useState } from "react";
+import { detectLanguage } from "../lib/i18n.js";
 
 const KEY = "guide-eye-settings";
 const DEFAULTS = {
+  language: typeof navigator !== "undefined" ? detectLanguage(navigator.languages) : "en", // Spoken language
   rate: 1.1,          // Speech speed
-  voiceURI: "",       // Empty = automatic (Indian English if available)
+  voiceURI: "",       // Empty = automatic (an Indian voice of the language if available)
   vibrate: true,      // Vibrate on Stop and stairs warnings
   muted: false,
   showBoxes: true,    // Draw detections over the camera picture

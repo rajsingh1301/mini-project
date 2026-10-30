@@ -10,19 +10,24 @@ import { useSignReader } from "./hooks/useSignReader.js";
 import { useSpeech } from "./hooks/useSpeech.js";
 import { useWakeLock } from "./hooks/useWakeLock.js";
 import { arrowFor, kindFor, sameText, vibrationFor } from "./lib/guidance.js";
+import { languageInfo, nextLanguage, t } from "./lib/i18n.js";
 
-const IDLE_BANNER = { kind: "clear", arrow: "👁", text: "Tap Start", sub: "Hold the phone at chest height, camera facing forward." };
-const STATUS_TEXT = { idle: "Off", connecting: "Connecting", live: "Live", lost: "Connection lost", reconnecting: "Reconnecting" };
+const idleBanner = (tr) => ({ kind: "clear", arrow: "👁", text: tr("tapStart"), sub: tr("holdPhone") });
+const STATUS_KEY = { idle: "statusOff", connecting: "statusConnecting", live: "statusLive", lost: "statusLost",
+                     reconnecting: "statusReconnecting" };
 const HINT_REPEAT_MS = 6000;
 
 export default function App() {
   const [settings, update] = useSettings();
   const speech = useSpeech(settings);
   const camera = useCamera();
+  // Everything spoken or shown uses the language the device can actually speak
+  const lang = speech.lang;
+  const tr = useCallback((key, vars) => t(lang, key, vars), [lang]);
 
   const [phase, setPhase] = useState("idle"); // idle | starting | walk | read
   const [status, setStatus] = useState("idle");
-  const [banner, setBanner] = useState(IDLE_BANNER);
+  const [banner, setBanner] = useState(() => idleBanner(tr));
   const [frame, setFrame] = useState(null);
   const [detections, setDetections] = useState([]);
   const [stats, setStats] = useState({ fps: 0, modelMs: 0, roundTripMs: 0 });
@@ -39,6 +44,21 @@ export default function App() {
 
   const running = phase === "walk" || phase === "read";
   useWakeLock(running);
+
+  // A language change updates the idle screen and confirms itself in the new language
+  const announceLanguage = useRef(false);
+  useEffect(() => {
+    if (phase === "idle") setBanner(idleBanner(tr));
+    if (announceLanguage.current) {
+      announceLanguage.current = false;
+      speech.speak(tr("languageSet"), { force: true });
+    }
+  }, [lang, settings.language]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const changeLanguage = useCallback((code) => {
+    announceLanguage.current = true;
+    update({ language: code, voiceURI: "" });
+  }, [update]);
 
   useEffect(() => {
     fetch("/api/health").then((r) => r.json()).then(setHealth).catch(() => setHealth(null));
@@ -70,29 +90,27 @@ export default function App() {
     }
 
     if (res.instruction) {
-      const kind = kindFor(res.instruction, res.emergency);
-      setBanner({ kind, arrow: arrowFor(res.instruction), text: res.instruction,
-                  sub: res.emergency ? "Immediate hazard" : "" });
+      setBanner({ kind: kindFor(res.emergency, res.clear), arrow: arrowFor(res.direction, res.clear),
+                  text: res.instruction, sub: res.emergency ? tr("immediateHazard") : "" });
       say(res.instruction, { urgent: res.emergency });
-      const pattern = vibrationFor(res.instruction, res.emergency);
+      const pattern = vibrationFor(res.alert);
       if (pattern && settings.vibrate && navigator.vibrate) navigator.vibrate(pattern);
     } else if (!res.detections.length) {
-      setBanner((b) => (b.kind === "stop" ? b : { kind: "clear", arrow: "✓", text: "Path clear", sub: "" }));
+      setBanner((b) => (b.kind === "stop" ? b : { kind: "clear", arrow: "✓", text: tr("pathClear"), sub: "" }));
     }
-  }, [say, settings.vibrate]);
+  }, [say, settings.vibrate, tr]);
 
   const onStatus = useCallback((next) => {
     setStatus(next);
     if (next === "lost") {
-      setBanner({ kind: "stop", arrow: "!", text: "Connection lost", sub: "Trying again…" });
-      say("Connection lost. Trying again.", { urgent: true });
+      setBanner({ id: "lost", kind: "stop", arrow: "!", text: tr("connectionLost"), sub: tr("tryingAgain") });
+      say(tr("connectionLostSpoken"), { urgent: true });
     } else if (next === "live") {
-      setBanner((b) => (b.text === "Connection lost"
-        ? { kind: "info", arrow: "↑", text: "Connected again", sub: "" } : b));
+      setBanner((b) => (b.id === "lost" ? { kind: "info", arrow: "↑", text: tr("connectedAgain"), sub: "" } : b));
     }
-  }, [say]);
+  }, [say, tr]);
 
-  useGuidanceStream({ active: phase === "walk", capture: camera.capture, onResult, onStatus });
+  useGuidanceStream({ active: phase === "walk", capture: camera.capture, lang, onResult, onStatus });
 
   /* ---------- Read mode ---------- */
   const onRead = useCallback((res) => {
@@ -101,7 +119,7 @@ export default function App() {
     const now = performance.now();
 
     if (res.error) {
-      setBanner({ kind: "stop", arrow: "!", text: "Cannot read", sub: res.error });
+      setBanner({ kind: "stop", arrow: "!", text: tr("cannotRead"), sub: res.error });
       if (forced || now - lastHintAt.current > HINT_REPEAT_MS) {
         lastHintAt.current = now;
         say(res.error, { force: true });
@@ -121,40 +139,38 @@ export default function App() {
     } else {
       // Nothing readable: forget the last board so pointing back at it reads it again
       lastRead.current = { text: null, kind: null, summary: "" };
-      setBanner({ kind: "info", arrow: "Aa", text: "Looking for text…", sub: res.hints?.[0] || "" });
+      setBanner({ kind: "info", arrow: "Aa", text: tr("lookingForText"), sub: res.hints?.[0] || "" });
       if (forced || now - lastHintAt.current > HINT_REPEAT_MS) {
         lastHintAt.current = now;
-        say(res.summary || "No text found.", { force: forced });
+        say(res.summary || tr("noTextFound"), { force: forced });
       }
     }
-  }, [say]);
+  }, [say, tr]);
 
-  useSignReader({ active: phase === "read", capture: camera.capture, isSpeaking: speech.isSpeaking, onRead });
+  useSignReader({ active: phase === "read", capture: camera.capture, lang, isSpeaking: speech.isSpeaking, onRead });
 
   /* ---------- Controls ---------- */
   const start = useCallback(async () => {
     if (phase !== "idle") return;
     // Speak inside the tap: iPhones only allow speech that starts from a user gesture
-    speech.speak("Starting camera.", { force: true });
+    speech.speak(tr("startingCamera"), { force: true });
     setPhase("starting");
-    setBanner({ kind: "info", arrow: "…", text: "Starting camera…", sub: "Allow camera access if asked." });
+    setBanner({ kind: "info", arrow: "…", text: tr("startingCameraBanner"), sub: tr("allowCamera") });
     try {
       await camera.start();
     } catch (error) {
       setPhase("idle");
       const insecure = !window.isSecureContext;
-      const msg = insecure
-        ? "Camera needs a secure page. Open the https address shown by run_server.py."
-        : "Camera is blocked or missing. Allow camera access, then tap Start again.";
-      setBanner({ kind: "stop", arrow: "!", text: "Camera unavailable", sub: msg });
+      const msg = insecure ? tr("cameraNeedsSecure") : tr("cameraBlocked");
+      setBanner({ kind: "stop", arrow: "!", text: tr("cameraUnavailable"), sub: msg });
       say(msg, { force: true });
       return;
     }
     fpsCounter.current = { frames: 0, since: performance.now() };
     setPhase("walk");
-    setBanner({ kind: "info", arrow: "↑", text: "Walking guidance on", sub: "Point the phone ahead." });
-    say("Walking guidance on.", { force: true });
-  }, [phase, camera, speech, say]);
+    setBanner({ kind: "info", arrow: "↑", text: tr("walkingOn"), sub: tr("pointAhead") });
+    say(tr("walkingOnSpoken"), { force: true });
+  }, [phase, camera, speech, say, tr]);
 
   const stop = useCallback(() => {
     camera.stop();
@@ -163,9 +179,9 @@ export default function App() {
     setDetections([]);
     setTorchOn(false);
     setStats({ fps: 0, modelMs: 0, roundTripMs: 0 });
-    setBanner(IDLE_BANNER);
-    speech.speak("Guidance stopped.", { force: true });
-  }, [camera, speech]);
+    setBanner(idleBanner(tr));
+    speech.speak(tr("guidanceStopped"), { force: true });
+  }, [camera, speech, tr]);
 
   const toggleRead = useCallback(() => {
     if (phase === "walk") {
@@ -174,29 +190,29 @@ export default function App() {
       setDetections([]);
       setStatus("live");
       setPhase("read");
-      setBanner({ kind: "info", arrow: "Aa", text: "Read mode", sub: "Point the phone at the sign or board." });
-      say("Read mode. Point the phone at the sign.", { force: true });
+      setBanner({ kind: "info", arrow: "Aa", text: tr("readMode"), sub: tr("pointAtSign") });
+      say(tr("readModeSpoken"), { force: true });
     } else if (phase === "read") {
       if (torchOn) camera.setTorch(false);
       setTorchOn(false);
       setPhase("walk");
-      setBanner({ kind: "info", arrow: "↑", text: "Walking guidance on", sub: "" });
-      say("Walking guidance on.", { force: true });
+      setBanner({ kind: "info", arrow: "↑", text: tr("walkingOn"), sub: "" });
+      say(tr("walkingOnSpoken"), { force: true });
     }
-  }, [phase, camera, torchOn, say]);
+  }, [phase, camera, torchOn, say, tr]);
 
   const readAgain = useCallback(() => {
     forceRead.current = true;
-    speech.speak("Reading.", { force: true });
-  }, [speech]);
+    speech.speak(tr("readingSpoken"), { force: true });
+  }, [speech, tr]);
 
   const toggleTorch = useCallback(async () => {
     const ok = await camera.setTorch(!torchOn);
     if (ok) {
       setTorchOn(!torchOn);
-      speech.speak(torchOn ? "Light off." : "Light on.", { force: true });
+      speech.speak(torchOn ? tr("lightOff") : tr("lightOn"), { force: true });
     }
-  }, [camera, torchOn, speech]);
+  }, [camera, torchOn, speech, tr]);
 
   const toggleMute = useCallback(() => {
     if (!settings.muted) speech.cancel();
@@ -226,12 +242,17 @@ export default function App() {
       <header className="top">
         <div className="brand">
           <span className="logo" aria-hidden="true">👁</span>
-          <h1>Guide Eye</h1>
+          <h1>{tr("appName")}</h1>
         </div>
         <span className={`status ${status}`} role="status">
-          {phase === "read" ? "Reading" : STATUS_TEXT[status]}
+          {phase === "read" ? tr("statusReading") : tr(STATUS_KEY[status])}
         </span>
-        <button type="button" className="icon-btn" onClick={() => setSettingsOpen(true)} aria-label="Settings">⚙</button>
+        <button type="button" className="lang-btn" lang={nextLanguage(settings.language)}
+                onClick={() => changeLanguage(nextLanguage(settings.language))}
+                aria-label={tr("switchLanguage", { language: languageInfo(nextLanguage(settings.language)).name })}>
+          {languageInfo(nextLanguage(settings.language)).native}
+        </button>
+        <button type="button" className="icon-btn" onClick={() => setSettingsOpen(true)} aria-label={tr("settings")}>⚙</button>
       </header>
 
       <div className="main">
@@ -240,14 +261,14 @@ export default function App() {
             <video ref={camera.videoRef} playsInline muted aria-hidden="true" />
             {phase === "walk" && <Overlay frame={frame} detections={detections} showBoxes={settings.showBoxes} />}
             {phase === "idle" && (
-              <button type="button" className="start-cover" onClick={start} aria-label="Start guidance">
+              <button type="button" className="start-cover" onClick={start} aria-label={tr("startGuidance")}>
                 <span className="start-icon" aria-hidden="true">▶</span>
-                <span className="start-label">Start</span>
-                <span className="start-sub">Tap anywhere here</span>
+                <span className="start-label">{tr("start")}</span>
+                <span className="start-sub">{tr("tapAnywhere")}</span>
               </button>
             )}
           </div>
-          <Banner {...banner} />
+          <Banner {...banner} label={tr("currentMessage")} linesLabel={tr("textOnSign")} />
         </div>
 
         {settings.showDetails && (
@@ -258,24 +279,24 @@ export default function App() {
       <nav className="controls" aria-label="Controls">
         {phase === "idle" || phase === "starting" ? (
           <button type="button" className="btn primary huge" onClick={start} disabled={phase === "starting"}>
-            {phase === "starting" ? "Starting…" : "Start guidance"}
+            {phase === "starting" ? tr("starting") : tr("startGuidance")}
           </button>
         ) : (
           <>
             <div className="row big">
               <button type="button" className="btn read" onClick={toggleRead}>
-                {phase === "read" ? "Back to walking" : "Read sign"}
+                {phase === "read" ? tr("backToWalking") : tr("readSign")}
               </button>
-              <button type="button" className="btn danger" onClick={stop}>Stop</button>
+              <button type="button" className="btn danger" onClick={stop}>{tr("stop")}</button>
             </div>
             <div className="row">
-              {phase === "read" && <button type="button" className="btn" onClick={readAgain}>Read again</button>}
-              <button type="button" className="btn" onClick={speech.repeat}>Repeat</button>
+              {phase === "read" && <button type="button" className="btn" onClick={readAgain}>{tr("readAgain")}</button>}
+              <button type="button" className="btn" onClick={speech.repeat}>{tr("repeat")}</button>
               {phase === "read" && camera.torchSupported && (
-                <button type="button" className="btn" aria-pressed={torchOn} onClick={toggleTorch}>Light</button>
+                <button type="button" className="btn" aria-pressed={torchOn} onClick={toggleTorch}>{tr("light")}</button>
               )}
               <button type="button" className="btn" aria-pressed={settings.muted} onClick={toggleMute}>
-                {settings.muted ? "Unmute" : "Mute"}
+                {settings.muted ? tr("unmute") : tr("mute")}
               </button>
             </div>
           </>
@@ -287,8 +308,10 @@ export default function App() {
         settings={settings}
         update={update}
         voices={speech.voices}
+        missingVoice={speech.missingVoice}
+        tr={tr}
         onClose={() => setSettingsOpen(false)}
-        onTest={() => speech.speak("Stop! stairs ahead.", { force: true })}
+        onTest={() => speech.speak(tr("testPhrase"), { force: true })}
       />
     </div>
   );

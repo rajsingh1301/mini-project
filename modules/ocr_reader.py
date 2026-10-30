@@ -11,12 +11,13 @@ object detector. This keeps the normal obstacle-guidance loop responsive.
 import re
 import threading
 from statistics import median
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 import cv2
 import numpy as np
 
 import config
+from modules import phrases
 
 
 class TextReader:
@@ -24,36 +25,47 @@ class TextReader:
 
     def __init__(self):
         self._reader = None
+        self._extra = {}  # Readers for other app languages, keyed by their EasyOCR language tuple
         self._lock = threading.Lock()
 
-    def _get_reader(self):
+    def _get_reader(self, lang: str = phrases.DEFAULT_LANGUAGE):
+        languages = config.OCR_LANGUAGES_BY_APP_LANGUAGE.get(phrases.normalize(lang))
+        if languages and languages != config.OCR_LANGUAGES:
+            key = tuple(languages)
+            if key not in self._extra:
+                self._extra[key] = self._load(languages)
+            return self._extra[key]
         if self._reader is None:
-            try:
-                import easyocr
-            except ImportError as error:
-                raise RuntimeError(
-                    "EasyOCR is not installed. Run: pip install easyocr"
-                ) from error
-            # GPU=False keeps this dependable on ordinary laptops.
-            try:
-                self._reader = easyocr.Reader(
-                    config.OCR_LANGUAGES,
-                    gpu=False,
-                    model_storage_directory=str(config.OCR_MODEL_DIR),
-                    user_network_directory=str(config.OCR_USER_NETWORK_DIR),
-                    verbose=False,
-                )
-            except Exception as error:
-                raise RuntimeError(
-                    "OCR model could not be loaded. Check the EasyOCR model "
-                    "download, then try again."
-                ) from error
+            self._reader = self._load(config.OCR_LANGUAGES)
         return self._reader
 
-    def warm_up(self):
+    @staticmethod
+    def _load(languages):
+        try:
+            import easyocr
+        except ImportError as error:
+            raise RuntimeError(
+                "EasyOCR is not installed. Run: pip install easyocr"
+            ) from error
+        # GPU=False keeps this dependable on ordinary laptops.
+        try:
+            return easyocr.Reader(
+                languages,
+                gpu=False,
+                model_storage_directory=str(config.OCR_MODEL_DIR),
+                user_network_directory=str(config.OCR_USER_NETWORK_DIR),
+                verbose=False,
+            )
+        except Exception as error:
+            raise RuntimeError(
+                "OCR model could not be loaded. Check the EasyOCR model "
+                "download, then try again."
+            ) from error
+
+    def warm_up(self, lang: str = phrases.DEFAULT_LANGUAGE):
         """Loads the model ahead of time so the first real request is fast."""
         with self._lock:
-            self._get_reader()
+            self._get_reader(lang)
 
     @staticmethod
     def clean_text(parts: List[str]) -> str:
@@ -118,17 +130,48 @@ class TextReader:
         return [line for line in lines if line]
 
     @staticmethod
-    def aiming_hints(items: List[Dict[str, Any]], width: int, height: int, quality: Dict[str, Any]) -> List[str]:
-        """Spoken advice on how to point the camera for a better read."""
-        hints = []
+    def aiming_codes(items: List[Dict[str, Any]], width: int, height: int,
+                     quality: Dict[str, Any]) -> List[Tuple[str, List[str]]]:
+        """How to point the camera for a better read, as (code, args) pairs.
+
+        Codes are language-independent; phrases.aiming_hint turns them into speech.
+        """
+        codes: List[Tuple[str, List[str]]] = []
         if quality["dark"]:
-            hints.append("It is too dark. Find more light.")
+            codes.append(("dark", []))
         if quality["blurry"]:
-            hints.append("The picture is blurry. Hold the phone steady.")
+            codes.append(("blurry", []))
         if not items:
-            if not hints:
-                hints.append("Point the phone at the sign, about one arm's length away.")
-            return hints
+            if not codes:
+                codes.append(("aim", []))
+            return codes
+
+        margin_x, margin_y = config.OCR_EDGE_MARGIN * width, config.OCR_EDGE_MARGIN * height
+        x1 = min(i["x1"] for i in items)
+        x2 = max(i["x2"] for i in items)
+        y1 = min(i["y1"] for i in items)
+        y2 = max(i["y2"] for i in items)
+        cut = []
+        if x1 <= margin_x:
+            cut.append("left")
+        if x2 >= width - margin_x:
+            cut.append("right")
+        if y1 <= margin_y:
+            cut.append("up")
+        if y2 >= height - margin_y:
+            cut.append("down")
+        if cut:
+            codes.append(("cut_off", cut))
+        elif median(i["h"] for i in items) / height < config.OCR_SMALL_TEXT_HEIGHT:
+            codes.append(("small", []))
+        return codes
+
+    @staticmethod
+    def aiming_hints(items: List[Dict[str, Any]], width: int, height: int, quality: Dict[str, Any],
+                     lang: str = phrases.DEFAULT_LANGUAGE) -> List[str]:
+        """Spoken advice on how to point the camera for a better read."""
+        return [phrases.aiming_hint(lang, code, args)
+                for code, args in TextReader.aiming_codes(items, width, height, quality)]
 
         margin_x, margin_y = config.OCR_EDGE_MARGIN * width, config.OCR_EDGE_MARGIN * height
         x1 = min(i["x1"] for i in items)
@@ -175,13 +218,18 @@ class TextReader:
             })
         return items
 
-    def read_scene(self, frame) -> Dict[str, Any]:
-        """Full read: lines of text, mean confidence, quality and aiming hints."""
+    def read_scene(self, frame, lang: str = phrases.DEFAULT_LANGUAGE) -> Dict[str, Any]:
+        """Full read: lines of text, mean confidence, quality and aiming hints.
+
+        `lang` is the app language: it picks the OCR models (Hindi also reads
+        Devanagari) and the language of the hints. `hint_codes` stay
+        language-independent so SignInterpreter can phrase them again.
+        """
         quality = self.image_quality(frame)
         image = self.prepare(frame)
         height, width = image.shape[:2]
         with self._lock:
-            reader = self._get_reader()
+            reader = self._get_reader(lang)
             items = self._items(reader, image)
             if not items:
                 # Second, slower pass only when the plain one found nothing: it helps
@@ -194,7 +242,8 @@ class TextReader:
             "lines": lines,
             "confidence": round(float(np.mean([i["conf"] for i in items])), 2) if items else 0.0,
             "quality": quality,
-            "hints": self.aiming_hints(items, width, height, quality),
+            "hints": self.aiming_hints(items, width, height, quality, lang),
+            "hint_codes": self.aiming_codes(items, width, height, quality),
         }
 
     def read(self, frame) -> str:

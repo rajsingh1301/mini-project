@@ -52,6 +52,27 @@ class TestTextReader(unittest.TestCase):
         self.assertEqual(result["text"], "Room 204 Computer Lab")
         self.assertEqual(result["hints"], [])
 
+    def test_hindi_uses_its_own_reader_and_hints(self):
+        english, hindi = FakeEasyOCR([]), FakeEasyOCR([(quad(300, 200, 450, 240), "निकास", 0.9)])
+        reader = TextReader()
+        reader._reader = english
+        reader._extra[("hi", "en")] = hindi
+        self.assertEqual(reader.read_scene(textured_frame(), "hi")["text"], "निकास")
+        self.assertEqual(reader.read_scene(textured_frame())["text"], "")
+        # No text: hints in the asked language, plus language-independent codes
+        out = reader.read_scene(textured_frame())
+        self.assertEqual(out["hint_codes"], [("aim", [])])
+        self.assertEqual(out["hints"], ["Point the phone at the sign, about one arm's length away."])
+
+    def test_hindi_model_is_loaded_once_on_first_use(self):
+        from unittest import mock
+        reader = TextReader()
+        with mock.patch.object(TextReader, "_load", return_value=FakeEasyOCR([])) as load:
+            reader._get_reader("hi")
+            reader._get_reader("hi")
+            reader._get_reader("en")
+        self.assertEqual([c.args[0] for c in load.call_args_list], [["hi", "en"], ["en"]])
+
     def test_noise_is_dropped(self):
         self.assertFalse(TextReader.keep("-", 0.99))
         self.assertFalse(TextReader.keep("x", 0.5))

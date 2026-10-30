@@ -35,6 +35,17 @@ class TestTTSQueue(unittest.TestCase):
         self.tts.speak("Stop! person ahead", priority=True)
         self.assertEqual(self.queued(), ["Stop! person ahead"])
 
+    def test_voice_matches_the_language(self):
+        class Voice:
+            def __init__(self, id, name, languages):
+                self.id, self.name, self.languages = id, name, languages
+        voices = [Voice("com.apple.voice.samantha", "Samantha", ["en_US"]),
+                  Voice("com.apple.voice.lekha", "Lekha", ["hi_IN"])]
+        self.assertEqual(tts_engine.TTSEngine.pick_voice(voices, "hi"), "com.apple.voice.lekha")
+        # No hints for English, and no Hindi voice installed: leave the default voice alone
+        self.assertIsNone(tts_engine.TTSEngine.pick_voice(voices, "en"))
+        self.assertIsNone(tts_engine.TTSEngine.pick_voice(voices[:1], "hi"))
+
     def test_empty_text_is_ignored(self):
         self.tts.speak("")
         self.assertEqual(self.queued(), [])

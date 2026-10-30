@@ -1,6 +1,7 @@
 """Main application for Real-Time Actionable Guidance for the Visually Impaired.
 """
 
+import argparse
 import sys
 import time
 import cv2
@@ -10,6 +11,7 @@ import config
 from modules.camera import VideoStream
 from modules.detector import ObstacleDetector
 from modules.guidance import GuidanceSession
+from modules import phrases
 from modules.ocr_reader import TextReader
 from modules.sign_interpreter import SignInterpreter
 from modules.tts_engine import TTSEngine
@@ -88,7 +90,22 @@ def create_simulated_frame(frame_counter):
     return frame
 
 
+def hud_text(text, result=None):
+    """OpenCV's built-in font cannot draw Devanagari, so the HUD shows an ASCII summary
+    of non-English phrases (they are still spoken in full)."""
+    if text.isascii():
+        return text
+    kind = (result or {}).get("alert") or ("clear" if (result or {}).get("clear") else "info")
+    return f"[spoken in {phrases.normalize(config.LANGUAGE)}] {kind}"
+
+
 def main():
+    parser = argparse.ArgumentParser(description="Guide Eye desktop demo")
+    parser.add_argument("--lang", default=config.LANGUAGE, choices=phrases.LANGUAGES,
+                        help="Language of spoken instructions (default: %(default)s)")
+    lang = parser.parse_args().lang
+    config.LANGUAGE = lang  # HUD helper and TTS read it
+
     print("=" * 60)
     print("Real-Time Actionable Guidance for the Visually Impaired")
     print("Initializing components...")
@@ -105,16 +122,16 @@ def main():
     detector = ObstacleDetector()
     if not detector.has_structure:
         print("[Info] Door/stairs model not found. Train it with: python training/train.py")
-    session = GuidanceSession(detector)
+    session = GuidanceSession(detector, lang)
     text_reader = TextReader()
     signs = SignInterpreter()
-    tts = TTSEngine()
+    tts = TTSEngine(lang=lang)
 
     print("System active! Press 'r' to read a sign, 'q' to exit.")
-    tts.speak("Guidance system active")
+    tts.speak({"en": "Guidance system active", "hi": "गाइडेंस चालू है"}.get(lang, "Guidance system active"))
 
     frame_counter = 0
-    current_active_directive = "Path clear"
+    current_active_directive = hud_text(phrases.path_clear(lang))
 
     try:
         while True:
@@ -141,10 +158,10 @@ def main():
             else:
                 detections, spoken_instruction = [], None
             if spoken_instruction:
-                current_active_directive = spoken_instruction
+                current_active_directive = hud_text(spoken_instruction, result)
                 tts.speak(spoken_instruction, priority=result["emergency"])
             elif not detections:
-                current_active_directive = "Path clear" if cam_available else "Camera unavailable"
+                current_active_directive = hud_text(phrases.path_clear(lang)) if cam_available else "Camera unavailable"
 
             # Step 4: Calculate Metrics
             total_latency = (time.time() - t_start) * 1000
@@ -168,9 +185,9 @@ def main():
             if key == ord('r'):
                 print("[OCR] Reading current frame...")
                 try:
-                    reading = signs.explain(text_reader.read_scene(frame),
-                                            detector.detect(frame, include_structure=False), frame)
-                    current_active_directive = f"Text: {reading['text']}" if reading["text"] else "No readable text"
+                    reading = signs.explain(text_reader.read_scene(frame, lang),
+                                            detector.detect(frame, include_structure=False), frame, lang)
+                    current_active_directive = hud_text(f"Text: {reading['text']}") if reading["text"] else "No readable text"
                     print(f"[OCR] {reading['summary']}")
                     tts.speak(reading["summary"], priority=True)
                 except RuntimeError as error:

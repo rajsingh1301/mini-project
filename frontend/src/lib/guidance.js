@@ -17,20 +17,18 @@ export function sameText(a, b) {
   return shared / (wa.size + wb.size - shared) >= 0.6;
 }
 
-/** Arrow glyph for a spoken instruction. */
-export function arrowFor(text) {
-  const t = (text || "").toLowerCase();
-  if (t === "path clear") return "✓";
-  if (/\bleft\b/.test(t)) return "←";
-  if (/\bright\b/.test(t)) return "→";
+/** Arrow glyph for the server's `direction` (left, ahead, right) of a spoken instruction. */
+export function arrowFor(direction, clear = false) {
+  if (clear) return "✓";
+  if (direction === "left") return "←";
+  if (direction === "right") return "→";
   return "↑";
 }
 
-/** Banner style for an instruction. */
-export function kindFor(instruction, emergency) {
+/** Banner style for an instruction: stop (emergency), clear (path clear) or info. */
+export function kindFor(emergency, clear = false) {
   if (emergency) return "stop";
-  if (!instruction || instruction === "Path clear") return "clear";
-  return "info";
+  return clear ? "clear" : "info";
 }
 
 /** Most urgent object per zone, for the left / ahead / right strip. */
@@ -46,10 +44,10 @@ export function zoneSummary(detections) {
   return zones;
 }
 
-/** Vibration pattern for an instruction, or null for none. */
-export function vibrationFor(instruction, emergency) {
-  if (emergency) return [300, 100, 300];
-  if (/^(caution|stairs)/i.test(instruction || "")) return [120, 80, 120];
+/** Vibration pattern for the server's alert level ("stop", "caution" or none), or null for none. */
+export function vibrationFor(alert) {
+  if (alert === "stop") return [300, 100, 300];
+  if (alert === "caution") return [120, 80, 120];
   return null;
 }
 

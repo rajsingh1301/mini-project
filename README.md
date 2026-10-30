@@ -28,6 +28,13 @@ No cloud APIs: all models run locally.
 3. **Sign meaning:** exit, no entry, warning, push/pull, restroom, lift, stairs, platform, bus stop, entrance, open/closed, arrows, and **traffic light color** (*"Traffic light is red. Wait."*).
 4. Reads continuously and only speaks again when the board changes.
 
+**Languages (English and Hindi)**
+- A language button in the app header switches everything at once: the spoken warnings (*"रुकिए! सामने सीढ़ियाँ"*), sign explanations, aiming hints and the screen text. The phone's language is picked on first use, and the choice is remembered.
+- Speech uses the device's own voices. If the device has no Hindi voice, the app says so in Settings and keeps speaking English (a Hindi sentence read by an English voice is unintelligible). Add one in the phone's text-to-speech settings.
+- Read mode also reads Hindi (Devanagari) boards when the app language is Hindi. This loads an extra OCR model that is downloaded once, then works offline.
+- Desktop app: `python main.py --lang hi` (uses a Hindi system voice, e.g. Lekha on macOS).
+- Add another language: translate one block in `modules/phrases.py` and one in `frontend/src/lib/i18n.js` (copy the `hi` ones). The tests fail until nothing is missing.
+
 **Phone app (React)**
 - One big **Start** button, then two big buttons: **Read sign** and **Stop**. Plus Repeat and Mute.
 - Everything important is spoken. Vibration on Stop and stairs warnings (Android). The screen stays on while walking. Phone light toggle in Read mode (Android).
@@ -166,7 +173,8 @@ mini_project/
 │   ├── camera.py             # Webcam capture & FPS
 │   ├── detector.py           # COCO + door/stairs YOLO models
 │   ├── tracker.py            # Frame-to-frame matching, flicker filter, approach rate
-│   ├── instruction.py        # Zones, proximity, HRI, phrases, throttling
+│   ├── instruction.py        # Zones, proximity, HRI, throttling
+│   ├── phrases.py            # Spoken phrases per language (English, Hindi)
 │   ├── guidance.py           # Detector -> tracker -> instructions, one session per user
 │   ├── ocr_reader.py         # Text reading, line order, aiming hints
 │   ├── sign_interpreter.py   # Sign meaning rules, traffic light color
@@ -183,5 +191,5 @@ mini_project/
 ## Limitations
 - Distance is estimated from box size and position, not measured. There is no depth sensor.
 - Stairs up/down needs a classifier trained on your own clips; it is not included yet.
-- Spoken phrases are English. Hindi boards can be read by setting `OCR_LANGUAGES = ["en", "hi"]` in `config.py` (larger model, not yet tested).
+- Spoken phrases exist in English and Hindi only. Hindi phrases and Devanagari board reading are tested with fake models, not yet with blind Hindi speakers or many real boards. The boxes and labels on the helper screen (Details) stay English.
 - This is a research prototype. It has not been validated with blind users and must not replace a cane or guide dog.

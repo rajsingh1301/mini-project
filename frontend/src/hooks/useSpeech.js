@@ -1,21 +1,28 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { languageInfo, t } from "../lib/i18n.js";
 
 const supported = typeof window !== "undefined" && "speechSynthesis" in window;
 
-/** Picks the saved voice, else Indian English, else any English voice. */
-function chooseVoice(voices, voiceURI) {
-  return voices.find((v) => v.voiceURI === voiceURI)
-    || voices.find((v) => v.lang === "en-IN")
-    || voices.find((v) => v.lang?.startsWith("en"))
+const inLanguage = (voice, code) => voice.lang?.toLowerCase().replace("_", "-").startsWith(code);
+
+/** Picks the saved voice if it speaks the language, else the language's Indian voice, else any voice for it. */
+function chooseVoice(voices, voiceURI, code) {
+  return voices.find((v) => v.voiceURI === voiceURI && inLanguage(v, code))
+    || voices.find((v) => v.lang === languageInfo(code).speech)
+    || voices.find((v) => inLanguage(v, code))
     || null;
 }
 
 /**
  * Browser text-to-speech with the same rules as the desktop TTS queue:
  * urgent phrases interrupt, ordinary ones are dropped while speaking (no backlog).
+ *
+ * `lang` is the language actually spoken: the chosen one, or English when this device has no
+ * voice for it (a Hindi sentence read by an English voice is unintelligible). `missingVoice`
+ * tells the settings dialog to explain that.
  */
 export function useSpeech(settings) {
-  const [voices, setVoices] = useState([]);
+  const [allVoices, setAllVoices] = useState([]);
   const lastText = useRef("");
   const lastUrgent = useRef({ text: "", at: 0 });
   const settingsRef = useRef(settings);
@@ -23,14 +30,22 @@ export function useSpeech(settings) {
 
   useEffect(() => {
     if (!supported) return undefined;
-    const load = () => setVoices(window.speechSynthesis.getVoices().filter((v) => v.lang?.startsWith("en")));
+    const load = () => setAllVoices(window.speechSynthesis.getVoices());
     load();
     window.speechSynthesis.addEventListener("voiceschanged", load);
     return () => window.speechSynthesis.removeEventListener("voiceschanged", load);
   }, []);
 
+  // Voices not loaded yet (some desktop browsers): assume the chosen language works
+  const wanted = settings.language;
+  const missingVoice = allVoices.length > 0 && wanted !== "en" && !allVoices.some((v) => inLanguage(v, wanted));
+  const lang = missingVoice ? "en" : wanted;
+  const voices = useMemo(() => allVoices.filter((v) => inLanguage(v, lang)), [allVoices, lang]);
+
   const voicesRef = useRef(voices);
   voicesRef.current = voices;
+  const langRef = useRef(lang);
+  langRef.current = lang;
 
   /**
    * urgent: interrupts current speech (never repeats the same alert within 4 s).
@@ -54,16 +69,17 @@ export function useSpeech(settings) {
       return;
     }
     const u = new SpeechSynthesisUtterance(text);
-    const voice = chooseVoice(voicesRef.current, s.voiceURI);
+    const voice = chooseVoice(voicesRef.current, s.voiceURI, langRef.current);
     if (voice) u.voice = voice;
-    u.lang = voice?.lang || "en-IN";
+    u.lang = voice?.lang || languageInfo(langRef.current).speech;
     u.rate = s.rate;
     synth.speak(u);
   }, []);
 
-  const repeat = useCallback(() => speak(lastText.current || "Nothing to repeat yet.", { force: true }), [speak]);
+  const repeat = useCallback(
+    () => speak(lastText.current || t(langRef.current, "nothingToRepeat"), { force: true }), [speak]);
   const cancel = useCallback(() => supported && window.speechSynthesis.cancel(), []);
   const isSpeaking = useCallback(() => supported && (window.speechSynthesis.speaking || window.speechSynthesis.pending), []);
 
-  return { speak, repeat, cancel, isSpeaking, voices, supported };
+  return { speak, repeat, cancel, isSpeaking, voices, supported, lang, missingVoice };
 }
