@@ -5,12 +5,16 @@ const supported = typeof window !== "undefined" && "speechSynthesis" in window;
 
 const inLanguage = (voice, code) => voice.lang?.toLowerCase().replace("_", "-").startsWith(code);
 
-/** Picks the saved voice if it speaks the language, else the language's Indian voice, else any voice for it. */
+/**
+ * Picks the voice the user chose, else the language's Indian voice, else any voice for it.
+ * Voices stored on the device come first: online voices stop working without a connection.
+ */
 function chooseVoice(voices, voiceURI, code) {
+  const best = (list) => list.find((v) => v.lang === languageInfo(code).speech) || list[0] || null;
+  const forLanguage = voices.filter((v) => inLanguage(v, code));
   return voices.find((v) => v.voiceURI === voiceURI && inLanguage(v, code))
-    || voices.find((v) => v.lang === languageInfo(code).speech)
-    || voices.find((v) => inLanguage(v, code))
-    || null;
+    || best(forLanguage.filter((v) => v.localService))
+    || best(forLanguage);
 }
 
 /**

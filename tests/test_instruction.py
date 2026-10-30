@@ -99,6 +99,42 @@ class TestInstructionGenerator(unittest.TestCase):
         later = 100.0 + config.MIN_GAP_SECONDS
         self.assertEqual(self.engine.generate_instruction([stairs], now=later), "Stairs going down ahead, slow down")
 
+    def test_several_obstacles_ahead_become_one_summary(self):
+        chair = det("chair", 0.5, 0.1)      # near, ahead
+        person = det("person", 0.45, 0.1)   # near, ahead
+        # Nothing on either side: no side is recommended
+        self.assertEqual(self.engine.generate_instruction([chair, person], now=100.0), "Obstacles ahead, slow down")
+        self.assertEqual(self.engine.last_meta, {"direction": "ahead", "alert": "caution", "clear": False})
+
+    def test_blocked_path_names_the_clearer_side(self):
+        ahead = [det("chair", 0.5, 0.1), det("person", 0.45, 0.1)]
+        right_side = det("bench", 0.8, 0.1)  # something close on the right
+        phrase = self.engine.generate_instruction(ahead + [right_side], now=100.0)
+        self.assertEqual(phrase, "Obstacles ahead, slow down. The left side looks clearer")
+
+    def test_blocked_path_is_an_emergency_when_one_is_immediate(self):
+        phrase = self.engine.generate_instruction([det("chair", 0.5, 0.1), det("person", 0.5, 0.3)], now=100.0)
+        self.assertEqual(phrase, "Stop! Obstacles blocking the path ahead")
+        self.assertEqual(self.engine.last_meta["alert"], "stop")
+
+    def test_single_obstacle_keeps_its_name(self):
+        self.assertEqual(self.engine.generate_instruction([det("chair", 0.5, 0.1)], now=100.0), "Chair ahead")
+
+    def test_far_or_side_objects_do_not_count_as_blocking(self):
+        dets = [det("chair", 0.5, 0.1), det("person", 0.2, 0.1), det("bench", 0.5, 0.01)]  # side, far
+        self.assertEqual(self.engine.generate_instruction(dets, now=100.0), "Chair ahead")
+
+    def test_doors_and_stairs_never_join_the_summary(self):
+        dets = [det("chair", 0.5, 0.1), det("door", 0.5, 0.1), det("stairs", 0.5, 0.1, norm_bottom=0.8)]
+        phrase = self.engine.generate_instruction(dets, now=100.0)
+        self.assertEqual(phrase, "Stairs ahead, slow down")
+
+    def test_blocked_summary_is_throttled_like_any_phrase(self):
+        dets = [det("chair", 0.5, 0.1), det("person", 0.45, 0.1)]
+        self.assertIsNotNone(self.engine.generate_instruction(dets, now=100.0))
+        self.assertIsNone(self.engine.generate_instruction(dets, now=101.0))
+        self.assertIsNotNone(self.engine.generate_instruction(dets, now=100.0 + config.AUDIO_THROTTLE_SECONDS + 0.1))
+
     def test_door_phrases(self):
         self.assertEqual(self.engine.generate_instruction([det("door", 0.2, 0.1)], now=100.0), "Door on your left")
         self.assertEqual(InstructionGenerator.build_phrase("door", "ahead", "immediate"), "Door just ahead")

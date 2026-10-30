@@ -91,9 +91,35 @@ class InstructionGenerator:
 
     @staticmethod
     def build_phrase(cls: str, direction: str, proximity: str, approaching: bool = False,
-                     stairs_dir: Optional[str] = None, lang: str = phrases.DEFAULT_LANGUAGE) -> Optional[str]:
+                     stairs_dir: Optional[str] = None, lang: str = phrases.DEFAULT_LANGUAGE,
+                     clearer: Optional[str] = None) -> Optional[str]:
         """Short imperative phrase, or None when the object is not worth announcing."""
-        return phrases.instruction(lang, cls, direction, proximity, approaching, stairs_dir)
+        return phrases.instruction(lang, cls, direction, proximity, approaching, stairs_dir, clearer)
+
+    @staticmethod
+    def blocked_path(scored: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """Summary candidate when several obstacles block the way ahead, else None.
+
+        Doors and stairs are not "blockers" (they have their own phrases). The side
+        that looks clearer is only named when exactly one side has nothing close:
+        it means "nothing detected there", not a guarantee, so the phrase says "looks".
+        """
+        def close(h):
+            return h["proximity"] in ("near", "immediate") and h["class_name"] != "door"
+
+        blockers = [h for h in scored if close(h) and h["direction"] == "ahead"
+                    and h["class_name"] not in config.FLOOR_CLASSES]
+        if len(blockers) < config.BLOCKED_MIN_OBJECTS:
+            return None
+        busy = {h["direction"] for h in scored if close(h)}
+        free = [side for side in ("left", "right") if side not in busy]
+        return {
+            "det": blockers[0]["det"], "direction": "ahead", "class_name": "obstacles",
+            "proximity": "immediate" if any(h["proximity"] == "immediate" for h in blockers) else "near",
+            "score": max(h["score"] for h in blockers) + 0.01,
+            "clearer": free[0] if len(free) == 1 else None,
+            "members": blockers,
+        }
 
     @staticmethod
     def alert_level(cls: str, direction: str, proximity: str) -> Optional[str]:
@@ -104,7 +130,7 @@ class InstructionGenerator:
         """
         if cls != "door" and proximity == "immediate" and direction == "ahead":
             return "stop"
-        if cls == "stairs" or (cls != "door" and proximity == "immediate"):
+        if cls in ("stairs", "obstacles") or (cls != "door" and proximity == "immediate"):
             return "caution"
         return None
 
@@ -136,7 +162,10 @@ class InstructionGenerator:
                 "class_name": det["class_name"]
             })
 
-        # 2. Sort hazards descending by risk score
+        # 2. Several obstacles in the way become one summary; sort descending by risk score
+        blocked = self.blocked_path(scored_hazards)
+        if blocked:
+            scored_hazards = [h for h in scored_hazards if h not in blocked["members"]] + [blocked]
         scored_hazards.sort(key=lambda h: h["score"], reverse=True)
 
         # 3. Find the top candidate that is not throttled
@@ -146,7 +175,8 @@ class InstructionGenerator:
             proximity = candidate["proximity"]
             stairs_dir = candidate["det"].get("stairs_dir")
             # A newly learned stairs direction is worth saying even right after "Stairs ahead"
-            cache_key = f"{cls}_{stairs_dir}_{direction}" if stairs_dir else f"{cls}_{direction}"
+            clearer = candidate.get("clearer")
+            cache_key = f"{cls}_{stairs_dir or clearer}_{direction}" if (stairs_dir or clearer) else f"{cls}_{direction}"
 
             # Determine throttling window: critical alerts and distant objects have their own cooldown
             cooldown = {"immediate": config.CRITICAL_OVERRIDE_SECONDS,
@@ -159,7 +189,7 @@ class InstructionGenerator:
             last_time = self.last_announced.get(cache_key, 0)
             if (now - last_time) >= cooldown:
                 phrase = self.build_phrase(cls, direction, proximity, self.is_approaching(candidate["det"]),
-                                           stairs_dir, self.lang)
+                                           stairs_dir, self.lang, clearer)
                 if phrase is None:
                     continue
 

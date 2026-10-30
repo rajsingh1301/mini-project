@@ -238,6 +238,8 @@ class TextReader:
 
         lines = self.group_lines(items)
         return {
+            # Where the text sits across the picture (0 = left edge, 1 = right edge)
+            "norm_cx": round(float(np.mean([(i["x1"] + i["x2"]) / 2 for i in items])) / width, 3) if items else None,
             "text": self.clean_text(lines),
             "lines": lines,
             "confidence": round(float(np.mean([i["conf"] for i in items])), 2) if items else 0.0,

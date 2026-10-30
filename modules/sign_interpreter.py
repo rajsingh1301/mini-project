@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 import cv2
 import numpy as np
 
+import config
 from modules import phrases
 
 
@@ -70,6 +71,11 @@ def hindi_form(text: str) -> str:
 
 HINDI_PATTERNS = {k: hindi_form(v) for k, v in HINDI_PATTERNS.items()}
 
+# Room-like labels ("Room 204", "Lab 3", "कमरा नंबर 12") so we can say which side they are on
+ROOM_PATTERN = re.compile(
+    r"\b(?:ROOM|RM|LAB|CABIN|OFFICE|HALL|WARD|CLASS(?:ROOM)?)\s*(?:NO\.?|#)?\s*[-.]?\s*\d+[A-Z]?\b"
+    r"|कमरा\s*(?:नंबर|नं\.?)?\s*[\d०-९]+", re.IGNORECASE)
+
 ARROWS = {"→": "right", "->": "right", "←": "left", "<-": "left", "↑": "straight ahead", "↓": "down"}
 
 
@@ -82,6 +88,15 @@ class SignInterpreter:
             if re.search(pattern, upper) or (kind in HINDI_PATTERNS and re.search(HINDI_PATTERNS[kind], hindi)):
                 return {"kind": kind, "label": label, "meaning": meaning}
         return None
+
+    @staticmethod
+    def room_side(text: str, norm_cx: Optional[float]):
+        """(room label, "left"/"right"/"ahead") when the text names a room and we know where it is."""
+        found = ROOM_PATTERN.search(text or "")
+        if not found or norm_cx is None:
+            return None
+        side = "left" if norm_cx < config.LEFT_SECTOR_RATIO else "right" if norm_cx > config.RIGHT_SECTOR_RATIO else "ahead"
+        return found.group(0).strip(), side
 
     @staticmethod
     def arrow_direction(text: str) -> Optional[str]:
@@ -148,6 +163,9 @@ class SignInterpreter:
             arrow = self.arrow_direction(text)
             if arrow:
                 parts.append(r["arrow"][arrow])
+            room = self.room_side(text, ocr.get("norm_cx"))
+            if room:
+                parts.append(r["place"][room[1]].format(room=room[0]))
         if rule and meaning:
             parts.append(meaning)
 

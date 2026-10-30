@@ -33,7 +33,7 @@ class TestTables(unittest.TestCase):
         # Word order differs per language, so the sets may differ, but every
         # placeholder must be one the code fills in (a typo would raise KeyError at runtime)
         import re
-        known = {"obj", "where", "from_", "come", "color", "advice", "text", "label", "directions"}
+        known = {"obj", "where", "from_", "come", "color", "advice", "text", "label", "directions", "room"}
         for table in (phrases.TEXT, phrases.READ):
             for lang in phrases.LANGUAGES:
                 for key, template in table[lang].items():
@@ -101,6 +101,12 @@ class TestInstructions(unittest.TestCase):
         # Nothing to say: no metadata left over from before
         self.assertIsNone(engine.generate_instruction([], now=111.0))
         self.assertIsNone(engine.last_meta)
+
+    def test_hindi_blocked_path(self):
+        build = lambda proximity, clearer=None: InstructionGenerator.build_phrase(
+            "obstacles", "ahead", proximity, lang="hi", clearer=clearer)
+        self.assertEqual(build("immediate"), "रुकिए! सामने रास्ता रुका हुआ है")
+        self.assertEqual(build("near", "left"), "सामने कई रुकावटें हैं, धीरे चलिए। बाईं ओर जगह ज़्यादा लग रही है")
 
     def test_alert_levels(self):
         level = InstructionGenerator.alert_level

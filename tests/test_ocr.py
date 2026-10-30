@@ -145,6 +145,29 @@ class TestSignInterpreter(unittest.TestCase):
         out = self.signs.explain({"text": "", "lines": [], "hints": ["It is too dark. Find more light."]})
         self.assertEqual(out["summary"], "No text found. It is too dark. Find more light.")
 
+    def test_room_is_placed_on_the_side_it_appears(self):
+        say = lambda text, cx: self.signs.explain({"text": text, "lines": [], "hints": [], "norm_cx": cx})["summary"]
+        self.assertEqual(say("Room 204", 0.8), "It says: Room 204. Room 204 is on your right.")
+        self.assertEqual(say("Room 204 Computer Lab", 0.2),
+                         "It says: Room 204 Computer Lab. Room 204 is on your left.")
+        self.assertEqual(say("LAB 3", 0.5), "It says: LAB 3. LAB 3 is ahead.")
+        # No position known, or not a room: nothing is claimed about sides
+        self.assertEqual(say("Room 204", None), "It says: Room 204.")
+        self.assertEqual(say("Canteen", 0.8), "It says: Canteen.")
+        self.assertEqual(say("Room", 0.8), "It says: Room.")
+
+    def test_room_side_in_hindi(self):
+        out = self.signs.explain({"text": "कमरा नंबर 12", "lines": [], "hints": [], "norm_cx": 0.9}, lang="hi")
+        self.assertEqual(out["summary"], "इस पर लिखा है: कमरा नंबर 12। कमरा नंबर 12 आपकी दाईं ओर है।")
+
+    def test_read_scene_reports_where_the_text_is(self):
+        reader = TextReader()
+        reader._reader = FakeEasyOCR([(quad(700, 300, 900, 340), "Room 204", 0.9)])
+        result = reader.read_scene(textured_frame())
+        self.assertGreater(result["norm_cx"], 0.65)
+        reader._reader = FakeEasyOCR([])
+        self.assertIsNone(reader.read_scene(textured_frame())["norm_cx"])
+
     def test_arrow(self):
         out = self.signs.explain({"text": "Toilets →", "lines": [], "hints": []})
         self.assertIn("The arrow points right.", out["summary"])

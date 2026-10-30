@@ -80,6 +80,10 @@ FLOOR_CLASSES = {"stairs"}
 FLOOR_IMMEDIATE_BOTTOM = 0.92          # Box bottom below 92% of frame height -> immediate
 FLOOR_NEAR_BOTTOM = 0.75
 
+# Blocked path: this many obstacles near or immediate in the path ahead are announced as one
+# "obstacles blocking the path" instead of one phrase per object.
+BLOCKED_MIN_OBJECTS = 2
+
 # Tracking (frame-to-frame matching of the same object)
 TRACK_MATCH_IOU = 0.3        # Minimum overlap to treat two boxes as the same object
 TRACK_MAX_AGE_SECONDS = 0.7  # Forget a track not seen for this long

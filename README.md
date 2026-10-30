@@ -20,13 +20,15 @@ No cloud APIs: all models run locally.
 4. **Left / ahead / right zones** and **proximity** (immediate, near, far). For stairs, proximity comes from how low the staircase reaches in the frame, because a staircase looks large even far away.
 5. **Tracking:** an object must be seen in 2 frames before it is announced (fewer false alarms), and a box that grows quickly is announced as *approaching* (d(area)/dt).
 6. **Hazard Risk Index (HRI)** ranks everything in view, and only the most important thing is spoken. Stairs carry the highest class weight, stairs going down even more.
-7. **No chatter:** repeat cooldowns, a global gap between phrases, and a one-time *"Path clear"* after a warning.
+7. **Blocked path:** when two or more obstacles are close in the path ahead, one summary is spoken instead of a list: *"Stop! Obstacles blocking the path ahead"* or *"Obstacles ahead, slow down. The left side looks clearer."* The clearer side is named only when nothing close was detected on exactly one side. It means "nothing seen", not "safe", so the phrase says "looks".
+8. **No chatter:** repeat cooldowns, a global gap between phrases, and a one-time *"Path clear"* after a warning.
 
 **Read mode (signs and boards)**
 1. EasyOCR reads in natural order (lines top to bottom, words left to right). A contrast-enhanced second pass rescues faded or engraved text.
 2. **Aiming help** for blind users: *"Text may be cut off. Move the phone right."*, *"The text is small. Move closer."*, *"The picture is blurry. Hold the phone steady."*, *"It is too dark."*
 3. **Sign meaning:** exit, no entry, warning, push/pull, restroom, lift, stairs, platform, bus stop, entrance, open/closed, arrows, and **traffic light color** (*"Traffic light is red. Wait."*).
-4. Reads continuously and only speaks again when the board changes.
+4. **Room position:** for labels like *Room 204*, *Lab 3* or *कमरा नंबर 12* it also says which side of the camera view the label is on: *"Room 204 is on your right."*
+5. Reads continuously and only speaks again when the board changes.
 
 **Languages (English and Hindi)**
 - A language button in the app header switches everything at once: the spoken warnings (*"रुकिए! सामने सीढ़ियाँ"*), sign explanations, aiming hints and the screen text. The phone's language is picked on first use, and the choice is remembered.
@@ -152,6 +154,7 @@ frames agree; otherwise the phrase stays *"Stairs ahead"*.
 
 ## Tests and benchmark
 ```bash
+python tests/check_offline.py                                      # runs every model with the network blocked
 python -m unittest discover -s tests -p "test_[a-z]*.py" -k Test   # Python unit tests
 cd frontend && npm test                                            # frontend logic tests
 python tests/test_benchmark.py                                     # latency/FPS for the paper

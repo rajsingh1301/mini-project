@@ -30,6 +30,9 @@ TEXT: Dict[str, Dict] = {
         "approaching": "{obj} approaching{from_}",
         "stairs_near_ahead": "{obj} ahead, slow down",
         "door_just_ahead": "{obj} just ahead",
+        "blocked_stop": "Stop! Obstacles blocking the path ahead",
+        "blocked_near": "Obstacles ahead, slow down",
+        "clearer": {"left": ". The left side looks clearer", "right": ". The right side looks clearer"},
         "come": {"m": "", "f": "", "p": ""},
         "stairs": {None: "stairs", "up": "stairs going up", "down": "stairs going down"},
         "path_clear": "Path clear",
@@ -44,6 +47,9 @@ TEXT: Dict[str, Dict] = {
         "approaching": "{from_} {obj} {come}",
         "stairs_near_ahead": "सामने {obj}, धीरे चलिए",
         "door_just_ahead": "{obj} बिल्कुल सामने",
+        "blocked_stop": "रुकिए! सामने रास्ता रुका हुआ है",
+        "blocked_near": "सामने कई रुकावटें हैं, धीरे चलिए",
+        "clearer": {"left": "। बाईं ओर जगह ज़्यादा लग रही है", "right": "। दाईं ओर जगह ज़्यादा लग रही है"},
         "come": {"m": "पास आ रहा है", "f": "पास आ रही है", "p": "पास आ रहे हैं"},
         "stairs": {None: "सीढ़ियाँ", "up": "ऊपर जाती सीढ़ियाँ", "down": "नीचे जाती सीढ़ियाँ"},
         "path_clear": "रास्ता साफ़ है",
@@ -93,14 +99,21 @@ def path_clear(lang: str = DEFAULT_LANGUAGE) -> str:
 
 
 def instruction(lang: str, cls: str, direction: str, proximity: str, approaching: bool = False,
-                stairs_dir: Optional[str] = None) -> Optional[str]:
-    """Short imperative phrase, or None when the object is not worth announcing."""
+                stairs_dir: Optional[str] = None, clearer: Optional[str] = None) -> Optional[str]:
+    """Short imperative phrase, or None when the object is not worth announcing.
+
+    cls "obstacles" is the summary of several objects blocking the path ahead;
+    `clearer` ("left"/"right") then names the side that looks freer.
+    """
     lang = normalize(lang)
     if proximity == "far" and direction != "ahead":
         return None  # Skip far peripheral objects to prevent cognitive clutter
     t = TEXT[lang]
     ahead = direction == "ahead"
     obj, gender = object_name(lang, cls)
+    if cls == "obstacles":
+        phrase = t["blocked_stop" if proximity == "immediate" else "blocked_near"]
+        return phrase + (t["clearer"][clearer] if clearer else "")
     if cls == "stairs":
         obj = t["stairs"].get(stairs_dir, t["stairs"][None])
         key = {"immediate": "stop_ahead" if ahead else "caution",
@@ -126,6 +139,8 @@ READ: Dict[str, Dict] = {
     "en": {
         "no_text": "No text found.",
         "says": "It says: {text}.",
+        "place": {"left": "{room} is on your left.", "right": "{room} is on your right.",
+                  "ahead": "{room} is ahead."},
         "arrow": {"right": "The arrow points right.", "left": "The arrow points left.",
                   "straight ahead": "The arrow points straight ahead.", "down": "The arrow points down."},
         "traffic_light": "Traffic light is {color}. {advice}",
@@ -148,6 +163,8 @@ READ: Dict[str, Dict] = {
     "hi": {
         "no_text": "कोई लिखावट नहीं मिली।",
         "says": "इस पर लिखा है: {text}।",
+        "place": {"left": "{room} आपकी बाईं ओर है।", "right": "{room} आपकी दाईं ओर है।",
+                  "ahead": "{room} सामने है।"},
         "arrow": {"right": "तीर दाईं ओर इशारा करता है।", "left": "तीर बाईं ओर इशारा करता है।",
                   "straight ahead": "तीर सीधे इशारा करता है।", "down": "तीर नीचे की ओर इशारा करता है।"},
         "traffic_light": "ट्रैफ़िक लाइट {color} है। {advice}",
